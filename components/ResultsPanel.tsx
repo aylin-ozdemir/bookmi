@@ -57,12 +57,14 @@ export default function ResultsPanel({ event, results, names }: Props) {
     allRemote: boolean;
     inPerson: boolean;
     notPref: boolean;
+    loc?: SlotResult["suggestedLocation"];
   }[] = [];
   for (const d of event.days) {
     let runStart: number | null = null;
     let runRemote = true;
     let runInPerson = true;
     let runNotPref = false;
+    let runLoc: SlotResult["suggestedLocation"];
     for (const t of [...times, event.endMin]) {
       const s = unionByKey.get(slotKey(d, t));
       const p = preferredByKey.get(slotKey(d, t));
@@ -78,10 +80,12 @@ export default function ResultsPanel({ event, results, names }: Props) {
           runRemote = true;
           runInPerson = true;
           runNotPref = false;
+          runLoc = undefined;
         }
         runRemote &&= everyoneRemoteOnly(s);
         runInPerson &&= unionFull;
         runNotPref ||= !(p && everyoneMarked(p));
+        runLoc ??= s.suggestedLocation;
       } else if (runStart !== null) {
         altRuns.push({
           day: d,
@@ -90,6 +94,7 @@ export default function ResultsPanel({ event, results, names }: Props) {
           allRemote: runRemote,
           inPerson: runInPerson,
           notPref: runNotPref,
+          loc: runLoc,
         });
         runStart = null;
       }
@@ -180,6 +185,13 @@ export default function ResultsPanel({ event, results, names }: Props) {
                   <div
                     className={`pointer-events-none absolute z-50 w-44 whitespace-pre-line rounded-md bg-zinc-900 px-2.5 py-1.5 text-left text-[10px] font-normal leading-snug text-zinc-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${tipPos}`}
                   >
+                    {s.suggestedLocation && (
+                      <div className="mb-0.5 font-semibold text-zinc-200">
+                        Meeting would be on{" "}
+                        {s.suggestedLocation === "NORTH" ? "North" : "Central"}{" "}
+                        Campus
+                      </div>
+                    )}
                     {s.verdicts.map((v) => (
                       <div key={v.participantId}>
                         <span className={v.ok ? "text-green-400" : "text-zinc-400"}>
@@ -259,6 +271,11 @@ export default function ResultsPanel({ event, results, names }: Props) {
                 {r.inPerson && (
                   <span className="ml-2 rounded bg-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-800">
                     in person
+                  </span>
+                )}
+                {r.loc && !r.allRemote && (
+                  <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">
+                    {r.loc === "NORTH" ? "North Campus" : "Central Campus"}
                   </span>
                 )}
                 {r.allRemote && (
