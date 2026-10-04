@@ -95,7 +95,7 @@ export function heatClass(slot: SlotResult, recommended: boolean): string {
     return base + (marked ? "bg-zinc-300" : "bg-zinc-100");
   }
   const frac = slot.feasible / slot.total;
-  if (frac >= 1) return base + "bg-green-500";
+  if (frac >= 1) return base + "bg-green-600";
   if (frac >= 0.75) return base + "bg-green-300";
   if (frac >= 0.5) return base + "bg-green-200";
   if (frac >= 0.25) return base + "bg-green-100";

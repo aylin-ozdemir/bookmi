@@ -125,13 +125,16 @@ export default function ResultsPanel({ event, results, names }: Props) {
               const tip = s.verdicts
                 .map((v) => `${names[v.participantId] ?? "?"}: ${verdictText(v, event.travelMin)}`)
                 .join("\n");
+              const full = s.total > 0 && s.feasible === s.total;
               return (
                 <div
                   key={d}
                   title={tip || "nobody"}
-                  className={`flex h-6 w-28 shrink-0 items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold text-violet-800 ${heatClass(s, rec)}`}
+                  className={`flex h-6 w-28 shrink-0 items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold ${
+                    full ? "border-green-700 text-white" : "text-violet-800"
+                  } ${heatClass(s, rec)}`}
                 >
-                  {allRemoteOnly(s) ? "⌂" : ""}
+                  {full ? "✓" : allRemoteOnly(s) ? "⌂" : ""}
                 </div>
               );
             })}
@@ -159,8 +162,9 @@ export default function ResultsPanel({ event, results, names }: Props) {
         </span>
       </div>
       <p className="mt-1 text-xs text-zinc-500">
-        Darker green = more people can make it. Blue outline = recommended.
-        Hover a cell to see who and why.
+        <span className="font-bold text-green-700">✓ dark green</span> = works for
+        everyone — a meeting candidate. Lighter green = some can make it.
+        Blue outline = recommended. Hover a cell to see who and why.
       </p>
       {remoteRuns.length > 0 && (
         <p className="mt-2 rounded-md bg-violet-50 px-3 py-2 text-xs text-violet-800">
