@@ -44,6 +44,9 @@ export interface SlotResult {
   total: number;
   /** Resolved campus when the event location is EITHER (else undefined). */
   suggestedLocation?: PhysicalCampus;
+  /** For EITHER-location events: every campus on which ALL participants are
+   *  feasible (so its length > 1 means the slot is genuinely flexible). */
+  allFeasible?: PhysicalCampus[];
 }
 
 export interface RecommendedSlot {
@@ -236,45 +239,55 @@ function evalSlot(
         ? ["NORTH", "CENTRAL"]
         : [ev.location];
 
-  let best: { result: SlotResult; inPerson: number } | undefined;
-  let tied = false;
-  for (const L of campuses) {
+  const evals = campuses.map((L) => {
     const verdicts = preps.map((p) => ({
       participantId: p.input.id,
       loc: markedLoc(availOf(p), day, t0) ?? undefined,
       ...verdict(p, ev, availOf(p), day, t0, L),
     }));
-    const feasible = verdicts.filter((v) => v.ok).length;
-    const inPerson = verdicts.filter((v) => v.mode === "in-person").length;
     const result: SlotResult = {
       day,
       startMin: t0,
       verdicts,
-      feasible,
+      feasible: verdicts.filter((v) => v.ok).length,
       total: preps.length,
       suggestedLocation:
         ev.location === "EITHER" && L ? L : undefined,
     };
-    // Most feasible participants wins; ties go to more in-person attendees.
-    // A full tie (either campus works equally well) is reported as such —
-    // suggesting one campus would imply a constraint that doesn't exist.
+    return {
+      L,
+      result,
+      inPerson: verdicts.filter((v) => v.mode === "in-person").length,
+    };
+  });
+
+  // Most feasible participants wins; ties go to more in-person attendees.
+  // A full tie (either campus works equally well) is reported as such —
+  // suggesting one campus would imply a constraint that doesn't exist.
+  let best = evals[0];
+  let tied = false;
+  for (const r of evals.slice(1)) {
     if (
-      !best ||
-      feasible > best.result.feasible ||
-      (feasible === best.result.feasible && inPerson > best.inPerson)
+      r.result.feasible > best.result.feasible ||
+      (r.result.feasible === best.result.feasible &&
+        r.inPerson > best.inPerson)
     ) {
-      best = { result, inPerson };
+      best = r;
       tied = false;
     } else if (
-      feasible === best.result.feasible &&
-      inPerson === best.inPerson
+      r.result.feasible === best.result.feasible &&
+      r.inPerson === best.inPerson
     ) {
       tied = true;
     }
   }
-  if (tied && ev.location === "EITHER")
-    best!.result.suggestedLocation = undefined;
-  return best!.result;
+  if (ev.location === "EITHER") {
+    if (tied) best.result.suggestedLocation = undefined;
+    best.result.allFeasible = evals
+      .filter((r) => r.L != null && r.result.feasible === preps.length)
+      .map((r) => r.L as PhysicalCampus);
+  }
+  return best.result;
 }
 
 function toRecommended(s: SlotResult): RecommendedSlot {

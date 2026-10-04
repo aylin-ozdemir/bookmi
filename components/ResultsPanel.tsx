@@ -41,11 +41,13 @@ export default function ResultsPanel({ event, results, names }: Props) {
   const byKey = new Map<string, SlotResult>();
   for (const s of grid) byKey.set(slotKey(s.day, s.startMin), s);
 
-  // Alternative times — every usable-but-not-recommended slot from the union:
-  //   · works in person but someone's availability is only in round 2
-  //   · everyone marked but can't all attend (remote-only, travel-blocked)
-  // Chips: "in person" (fully workable), "remote-only" (all-remote marks),
-  // "not preferred" (at least one person's mark is round-2-only).
+  // Alternative times — every usable-but-not-recommended slot from the union,
+  // grouped into the WIDEST possible runs:
+  //   · "flex" runs: fully workable slots where every campus works
+  //   · per-campus runs: the whole span each campus works, kept only when it
+  //     covers ground the flexible runs don't
+  //   · blocked runs: everyone marked but can't all attend (remote-only,
+  //     travel/campus-blocked)
   const preferredByKey = new Map<string, SlotResult>();
   for (const s of results.preferred) preferredByKey.set(slotKey(s.day, s.startMin), s);
   const unionByKey = new Map<string, SlotResult>();
@@ -59,57 +61,124 @@ export default function ResultsPanel({ event, results, names }: Props) {
     notPref: boolean;
     loc?: SlotResult["suggestedLocation"];
   }[] = [];
+  const campuses =
+    event.location === "EITHER"
+      ? (["NORTH", "CENTRAL"] as const)
+      : ([] as const);
   for (const d of event.days) {
-    let runStart: number | null = null;
-    let runRemote = true;
-    let runInPerson = true;
-    let runNotPref = false;
-    let runLoc: SlotResult["suggestedLocation"];
-    let runSig = "";
-    const flush = (endMin: number) => {
-      if (runStart === null) return;
+    const sAt = (t: number) => unionByKey.get(slotKey(d, t));
+    const pAt = (t: number) => preferredByKey.get(slotKey(d, t));
+    const full = (t: number) => {
+      const s = sAt(t);
+      return !!s && s.feasible === s.total;
+    };
+    const isAlt = (t: number) => {
+      const s = sAt(t);
+      if (!s) return false;
+      const p = pAt(t);
+      const prefFull = !!p && p.feasible === p.total;
+      return (full(t) && !prefFull) || (!full(t) && everyoneMarked(s));
+    };
+    const anyIn = (a: number, b: number, f: (t: number) => boolean) =>
+      times.some((t) => t >= a && t < b && f(t));
+    const allIn = (a: number, b: number, f: (t: number) => boolean) =>
+      !anyIn(a, b, (t) => !f(t));
+    const notPref = (a: number, b: number) =>
+      anyIn(a, b, (t) => !(pAt(t) && everyoneMarked(pAt(t)!)));
+    const anyInPerson = (a: number, b: number) =>
+      anyIn(a, b, (t) =>
+        sAt(t)!.verdicts.some((v) => v.ok && v.mode === "in-person"),
+      );
+    const collect = (sig: (t: number) => string | null) => {
+      const out: { startMin: number; endMin: number }[] = [];
+      let rs: number | null = null;
+      let cs = "";
+      for (const t of [...times, event.endMin]) {
+        const s = t < event.endMin ? sig(t) : null;
+        if (rs !== null && s !== cs) {
+          out.push({ startMin: rs, endMin: t });
+          rs = null;
+        }
+        if (s !== null && rs === null) {
+          rs = t;
+          cs = s;
+        }
+      }
+      return out;
+    };
+
+    // Blocked-but-marked runs (split on type/resolved campus).
+    for (const r of collect((t) => {
+      const s = sAt(t);
+      return s && isAlt(t) && !full(t)
+        ? `${everyoneRemoteOnly(s)}|${s.suggestedLocation ?? ""}`
+        : null;
+    })) {
+      let loc: SlotResult["suggestedLocation"];
+      for (const t of times)
+        if (t >= r.startMin && t < r.endMin) loc ??= sAt(t)?.suggestedLocation;
       altRuns.push({
         day: d,
-        startMin: runStart,
-        endMin,
-        allRemote: runRemote,
-        inPerson: runInPerson,
-        notPref: runNotPref,
-        loc: runLoc,
+        startMin: r.startMin,
+        endMin: r.endMin,
+        allRemote: allIn(r.startMin, r.endMin, (t) => everyoneRemoteOnly(sAt(t)!)),
+        inPerson: false,
+        notPref: notPref(r.startMin, r.endMin),
+        loc,
       });
-      runStart = null;
-    };
-    for (const t of [...times, event.endMin]) {
-      const s = unionByKey.get(slotKey(d, t));
-      const p = preferredByKey.get(slotKey(d, t));
-      const unionFull = !!s && s.feasible === s.total;
-      const prefFull = !!p && p.feasible === p.total;
-      const alt =
-        t < event.endMin &&
-        !!s &&
-        ((unionFull && !prefFull) || (!unionFull && everyoneMarked(s)));
-      // Runs split whenever the slot type or resolved campus changes, so a
-      // day's alternatives don't blur into one mislabeled block.
-      const sig = alt
-        ? `${unionFull}|${everyoneRemoteOnly(s)}|${s.suggestedLocation ?? ""}`
-        : "";
-      if (runStart !== null && (!alt || sig !== runSig)) flush(t);
-      if (alt) {
-        if (runStart === null) {
-          runStart = t;
-          runSig = sig;
-          runRemote = true;
-          runInPerson = true;
-          runNotPref = false;
-          runLoc = undefined;
-        }
-        runRemote &&= everyoneRemoteOnly(s);
-        runInPerson &&= unionFull;
-        runNotPref ||= !(p && everyoneMarked(p));
-        runLoc ??= s.suggestedLocation;
+    }
+
+    // Flexible runs: fully workable on every campus (or single-campus event).
+    for (const r of collect((t) => {
+      const s = sAt(t);
+      return s && isAlt(t) && full(t) && (!s.allFeasible || s.allFeasible.length > 1)
+        ? "flex"
+        : null;
+    })) {
+      const ip = anyInPerson(r.startMin, r.endMin);
+      altRuns.push({
+        day: d,
+        startMin: r.startMin,
+        endMin: r.endMin,
+        allRemote: !ip,
+        inPerson: ip,
+        notPref: notPref(r.startMin, r.endMin),
+        loc: undefined,
+      });
+    }
+
+    // Per-campus widest runs — kept only when they cover slots the flexible
+    // runs don't (e.g. Central works 6–8 even though either works 6–6:30).
+    for (const L of campuses) {
+      for (const r of collect((t) => {
+        const s = sAt(t);
+        return s && isAlt(t) && full(t) && s.allFeasible?.includes(L)
+          ? L
+          : null;
+      })) {
+        if (
+          allIn(r.startMin, r.endMin, (t) => (sAt(t)?.allFeasible?.length ?? 0) > 1)
+        )
+          continue; // entirely covered by a flexible run
+        const ip = anyInPerson(r.startMin, r.endMin);
+        altRuns.push({
+          day: d,
+          startMin: r.startMin,
+          endMin: r.endMin,
+          allRemote: !ip,
+          inPerson: ip,
+          notPref: notPref(r.startMin, r.endMin),
+          loc: L,
+        });
       }
     }
   }
+  altRuns.sort(
+    (a, b) =>
+      a.day.localeCompare(b.day) ||
+      a.startMin - b.startMin ||
+      (a.loc ? 1 : 0) - (b.loc ? 1 : 0),
+  );
 
   return (
     <div data-testid="results-panel">
