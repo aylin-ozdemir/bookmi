@@ -1,51 +1,68 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GridEditor, { Brush } from "@/components/GridEditor";
 import ResultsPanel from "@/components/ResultsPanel";
+import { computeResults } from "@/lib/availability";
 import type { EventBundle } from "@/lib/events";
 import type { BlockLoc, SelectionMap } from "@/lib/types";
 import { slotKey } from "@/lib/types";
 
 const POLL_MS = 4000;
+const RETRY_MS = 3000;
 
 export default function EventRoom({ slug }: { slug: string }) {
   const [bundle, setBundle] = useState<EventBundle | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
   const [joinName, setJoinName] = useState("");
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [round, setRound] = useState<1 | 2>(1);
   const [grids, setGrids] = useState<{ 1: SelectionMap; 2: SelectionMap }>({
     1: {},
     2: {},
   });
   const [brush, setBrush] = useState<Brush>("NORTH");
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty">("saved");
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty" | "error">(
+    "saved",
+  );
 
-  const dirty = useRef(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Rounds whose local grid differs from the server's; editSeq detects a
+  // save resolving after newer edits so it can't clobber them.
+  const dirtyRounds = useRef(new Set<1 | 2>());
+  const editSeq = useRef(0);
+  const retryNonce = useRef(0);
+  const [retryTick, setRetryTick] = useState(0);
 
   const me = bundle?.participants.find((p) => p.id === myId);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/events/${slug}`, { cache: "no-store" });
-    if (res.status === 404) {
-      setNotFound(true);
-      return;
-    }
-    const b: EventBundle = await res.json();
-    setBundle(b);
-    // Sync local grids from server unless mid-edit for that round.
-    if (myId) {
-      const mine = b.participants.find((p) => p.id === myId);
-      if (mine && !dirty.current) {
-        setGrids({
-          1: { ...mine.round1 },
-          2: { ...mine.round1, ...mine.round2 }, // preferred ⊆ available
-        });
+    if (notFound) return;
+    try {
+      const res = await fetch(`/api/events/${slug}`, { cache: "no-store" });
+      if (res.status === 404) {
+        setNotFound(true);
+        return;
       }
+      if (!res.ok) return;
+      const b: EventBundle = await res.json();
+      setBundle(b);
+      // Resync local grids only when there are no pending local edits.
+      if (myId && dirtyRounds.current.size === 0) {
+        const mine = b.participants.find((p) => p.id === myId);
+        if (mine) {
+          setGrids({
+            1: { ...mine.round1 },
+            2: { ...mine.round1, ...mine.round2 }, // preferred ⊆ available
+          });
+        }
+      }
+    } catch {
+      // transient failure — keep polling
     }
-  }, [slug, myId]);
+  }, [slug, myId, notFound]);
 
   useEffect(() => {
     const stored = localStorage.getItem(`bookmi:${slug}:pid`);
@@ -56,63 +73,103 @@ export default function EventRoom({ slug }: { slug: string }) {
     return () => clearInterval(t);
   }, [refresh, slug]);
 
-  // Debounced autosave: any grids change re-arms the timer; the save only
-  // fires if the change came from local edits (dirty flag set in onCell).
+  // Debounced autosave: any grids change re-arms the timer and every dirty
+  // round is saved with its latest map. retryTick re-arms after failures.
   useEffect(() => {
-    saveTimer.current = setTimeout(() => {
-      if (dirty.current && myId) void save(round, grids[round]);
+    if (!myId || dirtyRounds.current.size === 0) return;
+    const t = setTimeout(() => {
+      for (const r of [...dirtyRounds.current]) void save(r, grids[r]);
     }, 800);
-    return () => clearTimeout(saveTimer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on grids/round/myId only
-  }, [grids, round, myId]);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on grids/myId/retryTick only
+  }, [grids, myId, retryTick]);
 
   async function save(roundToSave: 1 | 2, map: SelectionMap) {
     if (!myId) return;
+    const seq = editSeq.current;
     setSaveState("saving");
-    const res = await fetch(
-      `/api/events/${slug}/participants/${myId}/selections`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ round: roundToSave, selections: map }),
-      },
-    );
-    setSaveState(res.ok ? "saved" : "dirty");
-    if (res.ok) {
-      dirty.current = false;
+    try {
+      const res = await fetch(
+        `/api/events/${slug}/participants/${myId}/selections`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ round: roundToSave, selections: map }),
+        },
+      );
+      if (!res.ok) throw new Error(`save failed: ${res.status}`);
+      if (editSeq.current !== seq) return; // superseded — pending debounce owns it
+      dirtyRounds.current.delete(roundToSave);
+      if (dirtyRounds.current.size === 0) setSaveState("saved");
       refresh();
+    } catch {
+      setSaveState("error");
+      retryNonce.current++;
+      setTimeout(() => setRetryTick(retryNonce.current), RETRY_MS);
     }
   }
 
   function onCell(day: string, startMin: number, loc: BlockLoc | null) {
-    dirty.current = true;
+    const key = slotKey(day, startMin);
+    editSeq.current++;
     setSaveState("dirty");
     setGrids((g) => {
       const next = { ...g[round] };
-      if (loc == null) delete next[slotKey(day, startMin)];
-      else next[slotKey(day, startMin)] = loc;
-      return { ...g, [round]: next };
+      if (loc == null) delete next[key];
+      else next[key] = loc;
+      let g1 = g[1];
+      // Erasing an inherited preferred cell in round 2 also un-preferreds it:
+      // a time that doesn't work at all shouldn't stay a first choice.
+      if (round === 2 && loc == null && key in g1) {
+        g1 = { ...g1 };
+        delete g1[key];
+        dirtyRounds.current.add(1);
+      }
+      return { ...g, 1: g1, [round]: next };
     });
+    dirtyRounds.current.add(round);
   }
 
   function switchRound(r: 1 | 2) {
-    if (dirty.current) save(round, grids[round]);
+    if (dirtyRounds.current.has(round)) void save(round, grids[round]);
     setRound(r);
   }
 
   async function join(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch(`/api/events/${slug}/participants`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: joinName }),
-    });
-    if (!res.ok) return;
-    const { participantId } = await res.json();
-    localStorage.setItem(`bookmi:${slug}:pid`, participantId);
-    setMyId(participantId);
-    refresh();
+    if (joinBusy) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      const res = await fetch(`/api/events/${slug}/participants`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: joinName }),
+      });
+      if (!res.ok) {
+        setJoinError("Couldn't join — try again.");
+        return;
+      }
+      const { participantId } = await res.json();
+      localStorage.setItem(`bookmi:${slug}:pid`, participantId);
+      setMyId(participantId);
+      refresh();
+    } catch {
+      setJoinError("Network error — try again.");
+    } finally {
+      setJoinBusy(false);
+    }
   }
+
+  // Instant local results: same engine as the server, with my unsaved
+  // edits merged in, so the heatmap reacts while I paint.
+  const liveResults = useMemo(() => {
+    if (!bundle || !me) return bundle?.results ?? null;
+    const merged = bundle.participants.map((p) =>
+      p.id === myId ? { ...p, round1: grids[1], round2: grids[2] } : p,
+    );
+    return computeResults(bundle.event, merged);
+  }, [bundle, grids, myId, me]);
 
   if (notFound)
     return (
@@ -125,7 +182,7 @@ export default function EventRoom({ slug }: { slug: string }) {
     );
   if (!bundle) return <main className="p-16 text-center text-zinc-400">Loading…</main>;
 
-  const { event, participants, results } = bundle;
+  const { event, participants } = bundle;
   const names = Object.fromEntries(participants.map((p) => [p.id, p.name]));
   const formatLabel =
     event.format === "IN_PERSON" ? "In person" : event.format === "HYBRID" ? "Hybrid" : "Virtual";
@@ -146,20 +203,30 @@ export default function EventRoom({ slug }: { slug: string }) {
               {formatLabel}
             </span>
             {event.format !== "VIRTUAL" && (
-              <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">
-                {locLabel}
-              </span>
+              <>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">
+                  {locLabel}
+                </span>
+                <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600">
+                  {event.travelMin} min bus buffer
+                </span>
+              </>
             )}
-            <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600">
-              {event.travelMin} min bus buffer
-            </span>
           </div>
         </div>
         <button
-          onClick={() => navigator.clipboard.writeText(window.location.href)}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(window.location.href);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            } catch {
+              setCopied(false);
+            }
+          }}
           className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
         >
-          Copy invite link
+          {copied ? "Copied!" : "Copy invite link"}
         </button>
       </header>
 
@@ -176,8 +243,12 @@ export default function EventRoom({ slug }: { slug: string }) {
             onChange={(e) => setJoinName(e.target.value)}
             required
           />
-          <button className="mt-3 w-full rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-            Join
+          {joinError && <p className="mt-2 text-sm text-red-600">{joinError}</p>}
+          <button
+            disabled={joinBusy}
+            className="mt-3 w-full rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            {joinBusy ? "Joining…" : "Join"}
           </button>
         </form>
       ) : (
@@ -197,8 +268,14 @@ export default function EventRoom({ slug }: { slug: string }) {
                   </button>
                 ))}
               </div>
-              <span className="text-xs text-zinc-400">
-                {saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Unsaved" : "Saved"}
+              <span className={`text-xs ${saveState === "error" ? "text-red-500" : "text-zinc-400"}`}>
+                {saveState === "saving"
+                  ? "Saving…"
+                  : saveState === "dirty"
+                    ? "Unsaved"
+                    : saveState === "error"
+                      ? "Save failed — retrying"
+                      : "Saved"}
               </span>
             </div>
             <p className="mb-3 text-xs text-zinc-500">
@@ -208,7 +285,7 @@ export default function EventRoom({ slug }: { slug: string }) {
             </p>
             <GridEditor
               event={event}
-              value={grids[round]}
+              value={round === 1 ? grids[1] : { ...grids[1], ...grids[2] }}
               onCell={onCell}
               brush={brush}
               setBrush={setBrush}
@@ -220,7 +297,36 @@ export default function EventRoom({ slug }: { slug: string }) {
               Group results · {participants.length}{" "}
               {participants.length === 1 ? "person" : "people"}
             </h2>
-            <ResultsPanel event={event} results={results} names={names} />
+            <div className="mb-4 flex flex-wrap gap-1.5">
+              {participants.map((p) => (
+                <span
+                  key={p.id}
+                  title={`${p.name} — preferred: ${Object.keys(p.round1).length} blocks, all-available: ${Object.keys(p.round2).length} blocks`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                    p.id === myId
+                      ? "border-blue-300 bg-blue-50 text-blue-800"
+                      : "border-zinc-200 bg-white text-zinc-600"
+                  }`}
+                >
+                  {p.name}
+                  <span className="flex gap-0.5">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        Object.keys(p.round1).length ? "bg-green-500" : "bg-zinc-300"
+                      }`}
+                    />
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        Object.keys(p.round2).length ? "bg-green-500" : "bg-zinc-300"
+                      }`}
+                    />
+                  </span>
+                </span>
+              ))}
+            </div>
+            {liveResults && (
+              <ResultsPanel event={event} results={liveResults} names={names} />
+            )}
           </section>
         </div>
       )}

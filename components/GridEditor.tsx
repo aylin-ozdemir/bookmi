@@ -6,6 +6,13 @@ import { BLOCK_LOCS, BlockLoc, EventConfig, SelectionMap, slotKey } from "@/lib/
 
 export type Brush = BlockLoc | "ERASE";
 
+const LOC_GLYPH: Record<BlockLoc, string> = {
+  NORTH: "N",
+  CENTRAL: "C",
+  EITHER: "~",
+  REMOTE: "⌂",
+};
+
 const BRUSHES: { value: Brush; label: string; chip?: string }[] = [
   ...BLOCK_LOCS.map((l) => ({ value: l as Brush, label: LOC_LABEL[l], chip: LOC_STYLE[l] })),
   { value: "ERASE", label: "Erase", chip: "bg-zinc-200" },
@@ -47,7 +54,15 @@ export default function GridEditor({ event, value, onCell, brush, setBrush }: Pr
     }
   }
 
-  function down(day: string, startMin: number) {
+  function down(e: React.PointerEvent, day: string, startMin: number) {
+    // Touch/pen get implicit pointer capture on the target, which would
+    // swallow pointerenter for the rest of the stroke — release it so
+    // dragging works on all input types.
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // not captured — mouse path
+    }
     const cur = value[slotKey(day, startMin)];
     if (brush === "ERASE") {
       stroke.current = { paint: false, loc: "NORTH" };
@@ -108,12 +123,17 @@ export default function GridEditor({ event, value, onCell, brush, setBrush }: Pr
               return (
                 <div
                   key={d}
-                  onPointerDown={() => down(d, t)}
+                  onPointerDown={(e) => down(e, d, t)}
                   onPointerEnter={() => apply(d, t)}
-                  className={`h-6 w-28 shrink-0 cursor-pointer rounded-sm border border-zinc-200 ${
-                    loc ? LOC_STYLE[loc] : "bg-white hover:bg-zinc-50"
+                  aria-label={`${d} ${fmtMin(t)}${loc ? ` — ${LOC_LABEL[loc]}` : ""}`}
+                  className={`flex h-6 w-28 shrink-0 cursor-pointer items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold ${
+                    loc
+                      ? `${LOC_STYLE[loc]} ${loc === "CENTRAL" ? "text-amber-900" : "text-white"}`
+                      : "bg-white hover:bg-zinc-50"
                   }`}
-                />
+                >
+                  {loc ? LOC_GLYPH[loc] : ""}
+                </div>
               );
             })}
           </div>

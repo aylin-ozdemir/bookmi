@@ -1,6 +1,6 @@
 import { BlockReason } from "./availability";
 import type { ParticipantVerdict, SlotResult } from "./availability";
-import type { BlockLoc, EventConfig } from "./types";
+import type { BlockLoc } from "./types";
 
 export function fmtMin(min: number): string {
   const h = Math.floor(min / 60);
@@ -35,25 +35,37 @@ export const LOC_STYLE: Record<BlockLoc, string> = {
   REMOTE: "bg-violet-400",
 };
 
-export function verdictText(
-  v: ParticipantVerdict,
-  travelMin: number,
-): string {
-  if (v.ok) return v.mode === "remote" ? "joins remotely" : "in person";
+function campusShort(l?: BlockLoc): string {
+  return l === "NORTH" ? "North" : l === "CENTRAL" ? "Central" : "";
+}
+
+function reasonText(v: ParticipantVerdict, travelMin: number): string {
   switch (v.reason as BlockReason) {
     case "not-marked":
       return "didn't mark this";
     case "remote-only":
       return "remote only";
     case "other-campus":
-      return "committed to the other campus";
+      return campusShort(v.loc) ? `on ${campusShort(v.loc)}` : "on the other campus";
     case "travel-before":
-      return `can't get here in time (${travelMin} min commute)`;
+      return campusShort(v.loc)
+        ? `on ${campusShort(v.loc)} — can't get here in time (${travelMin} min)`
+        : `can't get here in time (${travelMin} min)`;
     case "travel-after":
-      return `can't reach next commitment (${travelMin} min commute)`;
+      return `can't reach their next commitment (${travelMin} min)`;
     default:
       return "unavailable";
   }
+}
+
+export function verdictText(
+  v: ParticipantVerdict,
+  travelMin: number,
+): string {
+  if (!v.ok) return reasonText(v, travelMin);
+  if (v.mode === "remote")
+    return v.reason ? `joins remotely — ${reasonText(v, travelMin)}` : "joins remotely";
+  return "in person";
 }
 
 /** Heatmap cell shading by feasible fraction. */
@@ -66,12 +78,4 @@ export function heatClass(slot: SlotResult, recommended: boolean): string {
   if (frac >= 0.5) return base + "bg-green-200";
   if (frac >= 0.25) return base + "bg-green-100";
   return base + "bg-green-50";
-}
-
-export function slotTooltip(slot: SlotResult, ev: EventConfig): string {
-  const lines = slot.verdicts.map((v) => {
-    const name = v.participantId; // replaced by caller with real name
-    return `${name}: ${verdictText(v, ev.travelMin)}`;
-  });
-  return lines.join("\n");
 }

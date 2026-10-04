@@ -16,7 +16,7 @@ function isoPlus(daysAhead: number): string {
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => i * 30); // every 30 min
 
 function fmtOpt(min: number) {
-  const h = Math.floor(min / 60);
+  const h = Math.floor(min / 60) % 24;
   const ampm = h >= 12 ? "PM" : "AM";
   const hh = h % 12 === 0 ? 12 : h % 12;
   return `${hh}:${String(min % 60).padStart(2, "0")} ${ampm}`;
@@ -66,7 +66,8 @@ export default function Home() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError("Couldn't create the event — check your inputs.");
+      const body = await res.json().catch(() => null);
+      setError(body?.error ?? "Couldn't create the event — check your inputs.");
       return;
     }
     const { slug } = await res.json();
@@ -222,7 +223,7 @@ export default function Home() {
 
         <button
           type="submit"
-          disabled={busy || !name.trim() || days.length === 0}
+          disabled={busy || !name.trim() || days.length === 0 || endMin <= startMin}
           className="w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create event"}

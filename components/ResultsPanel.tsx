@@ -21,8 +21,12 @@ const TIER_COPY = {
 export default function ResultsPanel({ event, results, names }: Props) {
   const [view, setView] = useState<"preferred" | "union">("preferred");
   const grid = view === "preferred" ? results.preferred : results.union;
+  // Recommended rings only make sense on the view that produced them.
+  const showRings =
+    (results.tier === "preferred" && view === "preferred") ||
+    (results.tier === "fallback" && view === "union");
   const recKeys = new Set(
-    results.recommended.map((r) => slotKey(r.day, r.startMin)),
+    showRings ? results.recommended.map((r) => slotKey(r.day, r.startMin)) : [],
   );
 
   const times: number[] = [];
@@ -113,7 +117,21 @@ export default function ResultsPanel({ event, results, names }: Props) {
           </div>
         ))}
       </div>
-      <p className="mt-2 text-xs text-zinc-500">
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-500" /> North
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" /> Central
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Flexible
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-400" /> Remote
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-zinc-500">
         Darker green = more people can make it. Blue outline = recommended.
         Hover a cell to see who and why.
       </p>
