@@ -19,7 +19,11 @@ const TIER_COPY = {
 } as const;
 
 export default function ResultsPanel({ event, results, names }: Props) {
-  const [view, setView] = useState<"preferred" | "union">("preferred");
+  // Default to the view that actually produced the recommendation: if only
+  // the union (or nothing) works, "All availability" is what matters first.
+  const [view, setView] = useState<"preferred" | "union">(
+    results.tier === "preferred" ? "preferred" : "union",
+  );
   const grid = view === "preferred" ? results.preferred : results.union;
   // Recommended rings only make sense on the view that produced them.
   const showRings =
