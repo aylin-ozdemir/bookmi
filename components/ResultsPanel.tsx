@@ -265,16 +265,10 @@ export default function ResultsPanel({ event, results, names }: Props) {
             {results.recommendedRuns.map((r) => (
               <li key={`${r.day}@${r.startMin}`} className="text-sm font-medium text-zinc-800">
                 {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
-                {r.suggestedLocation ? (
+                {r.suggestedLocation && (
                   <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-800">
                     {r.suggestedLocation === "NORTH" ? "North Campus" : "Central Campus"}
                   </span>
-                ) : (
-                  event.location === "EITHER" && (
-                    <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-xs font-semibold text-zinc-600">
-                      either campus
-                    </span>
-                  )
                 )}
               </li>
             ))}
@@ -296,17 +290,10 @@ export default function ResultsPanel({ event, results, names }: Props) {
                     in person
                   </span>
                 )}
-                {r.loc && !r.allRemote ? (
+                {r.loc && !r.allRemote && (
                   <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">
                     {r.loc === "NORTH" ? "North Campus" : "Central Campus"}
                   </span>
-                ) : (
-                  r.inPerson &&
-                  event.location === "EITHER" && (
-                    <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
-                      either campus
-                    </span>
-                  )
                 )}
                 {r.allRemote && (
                   <span className="ml-2 rounded bg-violet-200 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">
