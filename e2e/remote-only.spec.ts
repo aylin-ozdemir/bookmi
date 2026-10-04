@@ -62,7 +62,10 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
   await expect(results.locator("div.bg-violet-500")).toHaveCount(4);
   await expect(results.locator("div.bg-violet-200")).toHaveCount(2);
   await expect(
-    results.getByText(/Alternative — everyone's free, but it doesn't fully work in person/),
+    results.getByText(/Alternative — everyone's available, just not ideal/),
   ).toBeVisible();
   await expect(results.getByText("Wed, Oct 7 · 6:00 PM–8:00 PM")).toBeVisible();
+  // Both marked remote in round 2 only → remote-only + not preferred chips.
+  await expect(results.getByText("remote-only", { exact: true })).toBeVisible();
+  await expect(results.getByText("not preferred", { exact: true })).toBeVisible();
 });

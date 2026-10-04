@@ -41,28 +41,56 @@ export default function ResultsPanel({ event, results, names }: Props) {
   const byKey = new Map<string, SlotResult>();
   for (const s of grid) byKey.set(slotKey(s.day, s.startMin), s);
 
-  // Alternative times: every participant marked the slot but it isn't fully
-  // feasible (remote-only, travel-blocked, wrong campus). Computed from the
-  // union so the card shows on either view; runs track whether they are
-  // entirely remote-only for the chip + hybrid hint.
+  // Alternative times — every usable-but-not-recommended slot from the union:
+  //   · works in person but someone's availability is only in round 2
+  //   · everyone marked but can't all attend (remote-only, travel-blocked)
+  // Chips: "in person" (fully workable), "remote-only" (all-remote marks),
+  // "not preferred" (at least one person's mark is round-2-only).
+  const preferredByKey = new Map<string, SlotResult>();
+  for (const s of results.preferred) preferredByKey.set(slotKey(s.day, s.startMin), s);
   const unionByKey = new Map<string, SlotResult>();
   for (const s of results.union) unionByKey.set(slotKey(s.day, s.startMin), s);
-  const altRuns: { day: string; startMin: number; endMin: number; allRemote: boolean }[] = [];
+  const altRuns: {
+    day: string;
+    startMin: number;
+    endMin: number;
+    allRemote: boolean;
+    inPerson: boolean;
+    notPref: boolean;
+  }[] = [];
   for (const d of event.days) {
     let runStart: number | null = null;
     let runRemote = true;
+    let runInPerson = true;
+    let runNotPref = false;
     for (const t of [...times, event.endMin]) {
       const s = unionByKey.get(slotKey(d, t));
+      const p = preferredByKey.get(slotKey(d, t));
+      const unionFull = !!s && s.feasible === s.total;
+      const prefFull = !!p && p.feasible === p.total;
       const alt =
-        t < event.endMin && !!s && s.feasible < s.total && everyoneMarked(s);
+        t < event.endMin &&
+        !!s &&
+        ((unionFull && !prefFull) || (!unionFull && everyoneMarked(s)));
       if (alt) {
         if (runStart === null) {
           runStart = t;
           runRemote = true;
+          runInPerson = true;
+          runNotPref = false;
         }
         runRemote &&= everyoneRemoteOnly(s);
+        runInPerson &&= unionFull;
+        runNotPref ||= !(p && everyoneMarked(p));
       } else if (runStart !== null) {
-        altRuns.push({ day: d, startMin: runStart, endMin: t, allRemote: runRemote });
+        altRuns.push({
+          day: d,
+          startMin: runStart,
+          endMin: t,
+          allRemote: runRemote,
+          inPerson: runInPerson,
+          notPref: runNotPref,
+        });
         runStart = null;
       }
     }
@@ -221,17 +249,26 @@ export default function ResultsPanel({ event, results, names }: Props) {
       {altRuns.length > 0 && (
         <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2">
           <p className="text-xs font-semibold text-violet-900">
-            ⌂ Alternative{altRuns.length > 1 ? "s" : ""} — everyone&apos;s free,
-            but it doesn&apos;t fully work
-            {event.format === "IN_PERSON" ? " in person" : ""}:
+            ⌂ Alternative{altRuns.length > 1 ? "s" : ""} — everyone&apos;s
+            available, just not ideal:
           </p>
           <ul className="mt-1 space-y-0.5">
             {altRuns.map((r) => (
               <li key={`${r.day}@${r.startMin}`} className="text-xs text-violet-800">
                 {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
+                {r.inPerson && (
+                  <span className="ml-2 rounded bg-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-800">
+                    in person
+                  </span>
+                )}
                 {r.allRemote && (
                   <span className="ml-2 rounded bg-violet-200 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">
                     remote-only
+                  </span>
+                )}
+                {r.notPref && (
+                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                    not preferred
                   </span>
                 )}
               </li>
