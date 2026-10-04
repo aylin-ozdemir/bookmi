@@ -1,0 +1,48 @@
+// BookMi data model — see IMPLEMENTATION_PLAN.md §3.
+// SQLite: enums are not enforced at the DB level, so enum-ish fields are
+// String columns validated at the app layer (zod + TS unions in lib/types.ts).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Event {
+  id           String        @id @default(cuid())
+  slug         String        @unique
+  name         String
+  format       String // VIRTUAL | IN_PERSON | HYBRID
+  location     String // NORTH | CENTRAL | EITHER
+  days         String // JSON array of ISO dates, e.g. ["2026-10-05","2026-10-06"]
+  startMin     Int
+  endMin       Int
+  slotMinutes  Int           @default(30)
+  travelMin    Int           @default(20)
+  createdAt    DateTime      @default(now())
+  participants Participant[]
+}
+
+model Participant {
+  id         String      @id @default(cuid())
+  eventId    String
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name       String
+  createdAt  DateTime    @default(now())
+  selections Selection[]
+}
+
+model Selection {
+  id            String      @id @default(cuid())
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  day           String // ISO date "2026-10-05"
+  slotStartMin  Int // minutes from midnight
+  round         Int // 1 = preferred, 2 = available
+  location      String // NORTH | CENTRAL | EITHER | REMOTE
+
+  @@unique([participantId, day, slotStartMin, round])
+}
