@@ -195,12 +195,19 @@ export default function ResultsPanel({ event, results, names }: Props) {
                   <div
                     className={`pointer-events-none absolute z-50 w-44 whitespace-pre-line rounded-md bg-zinc-900 px-2.5 py-1.5 text-left text-[10px] font-normal leading-snug text-zinc-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${tipPos}`}
                   >
-                    {s.suggestedLocation && (
+                    {s.suggestedLocation ? (
                       <div className="mb-0.5 font-semibold text-zinc-200">
                         Meeting would be on{" "}
                         {s.suggestedLocation === "NORTH" ? "North" : "Central"}{" "}
                         Campus
                       </div>
+                    ) : (
+                      event.location === "EITHER" &&
+                      s.feasible > 0 && (
+                        <div className="mb-0.5 font-semibold text-zinc-200">
+                          Works on either campus
+                        </div>
+                      )
                     )}
                     {s.verdicts.map((v) => (
                       <div key={v.participantId}>
@@ -258,10 +265,16 @@ export default function ResultsPanel({ event, results, names }: Props) {
             {results.recommendedRuns.map((r) => (
               <li key={`${r.day}@${r.startMin}`} className="text-sm font-medium text-zinc-800">
                 {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
-                {r.suggestedLocation && (
+                {r.suggestedLocation ? (
                   <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-800">
                     {r.suggestedLocation === "NORTH" ? "North Campus" : "Central Campus"}
                   </span>
+                ) : (
+                  event.location === "EITHER" && (
+                    <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-xs font-semibold text-zinc-600">
+                      either campus
+                    </span>
+                  )
                 )}
               </li>
             ))}
@@ -283,10 +296,17 @@ export default function ResultsPanel({ event, results, names }: Props) {
                     in person
                   </span>
                 )}
-                {r.loc && !r.allRemote && (
+                {r.loc && !r.allRemote ? (
                   <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">
                     {r.loc === "NORTH" ? "North Campus" : "Central Campus"}
                   </span>
+                ) : (
+                  r.inPerson &&
+                  event.location === "EITHER" && (
+                    <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
+                      either campus
+                    </span>
+                  )
                 )}
                 {r.allRemote && (
                   <span className="ml-2 rounded bg-violet-200 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">

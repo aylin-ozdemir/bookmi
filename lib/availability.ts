@@ -237,6 +237,7 @@ function evalSlot(
         : [ev.location];
 
   let best: { result: SlotResult; inPerson: number } | undefined;
+  let tied = false;
   for (const L of campuses) {
     const verdicts = preps.map((p) => ({
       participantId: p.input.id,
@@ -254,15 +255,25 @@ function evalSlot(
       suggestedLocation:
         ev.location === "EITHER" && L ? L : undefined,
     };
-    // Most feasible participants wins; ties go to more in-person attendees,
-    // then to the earlier campus in the list (NORTH) — deterministic.
+    // Most feasible participants wins; ties go to more in-person attendees.
+    // A full tie (either campus works equally well) is reported as such —
+    // suggesting one campus would imply a constraint that doesn't exist.
     if (
       !best ||
       feasible > best.result.feasible ||
       (feasible === best.result.feasible && inPerson > best.inPerson)
-    )
+    ) {
       best = { result, inPerson };
+      tied = false;
+    } else if (
+      feasible === best.result.feasible &&
+      inPerson === best.inPerson
+    ) {
+      tied = true;
+    }
   }
+  if (tied && ev.location === "EITHER")
+    best!.result.suggestedLocation = undefined;
   return best!.result;
 }
 
