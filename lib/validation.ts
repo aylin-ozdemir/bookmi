@@ -23,6 +23,11 @@ export const joinSchema = z.object({
   name: z.string().trim().min(1).max(60),
 });
 
+export const calendarSelectionSchema = z.object({
+  // explicit id list = custom mode; null = back to auto defaults
+  calendarIds: z.array(z.string().min(1).max(300)).max(200).nullable(),
+});
+
 export const saveSelectionsSchema = z.object({
   round: z.union([z.literal(1), z.literal(2)]),
   selections: z

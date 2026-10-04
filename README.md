@@ -18,6 +18,9 @@ for the architecture.
 - **Live results heatmap:** shade by feasible headcount, hover for per-person
   status ("can't get here in time (20 min commute)"), suggested campus for
   either-location events.
+- **Optional Google Calendar import:** link a Google account to auto-fill your
+  "all available" grid from your calendar's free time. Long "study"-type
+  blocks count as available (and can carry a campus tag from their location).
 
 ## Stack
 
@@ -34,6 +37,36 @@ npm run seed           # optional: demo event at /e/demo-study-group
 ```
 
 `DATABASE_URL` defaults to `file:./prisma/dev.db` (see `.env.example`).
+
+## Google Calendar link (optional)
+
+Participants can connect a Google account from the event room to auto-fill
+their round-2 availability grid: busy calendar events block slots, free time
+is marked Flexible, and self-scheduled blocks titled "study" (or similar —
+see `STUDY_RE` in `lib/calendarImport.ts`) of 60+ minutes count as available.
+Campus names in an event's location field (e.g. "Duderstadt") tag the slot
+with that campus. Re-syncing keeps hand-painted marks and drops stale
+imported ones; unlinking removes imported marks too.
+
+By default the import only counts calendars the user can write on
+(`accessRole` owner/writer — their own calendars, whose events are real
+commitments). Read-only subscriptions — TA office hours, public schedules,
+Google's holiday calendars — default to excluded but stay pickable, and
+events the user created count as busy no matter which calendar they sit
+on. The linked card shows a per-calendar checklist to override the
+defaults; the choice is stored per participant.
+
+To enable it, create OAuth credentials in
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+(web application type, Calendar API enabled) and register the redirect URI
+`http://localhost:3000/api/auth/google/callback`, then set:
+
+```bash
+GOOGLE_CLIENT_ID="…"
+GOOGLE_CLIENT_SECRET="…"
+```
+
+Without these vars the feature is hidden and its endpoints return 501.
 
 ## Testing
 

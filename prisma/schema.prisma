@@ -27,12 +27,26 @@ model Event {
 }
 
 model Participant {
-  id         String      @id @default(cuid())
-  eventId    String
-  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  name       String
-  createdAt  DateTime    @default(now())
-  selections Selection[]
+  id                 String      @id @default(cuid())
+  eventId            String
+  event              Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name               String
+  createdAt          DateTime    @default(now())
+  selections         Selection[]
+  // Optional Google Calendar link — all null when not connected.
+  googleEmail        String?
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+  // JSON SelectionMap of the slots the last calendar import filled, so a
+  // re-sync can drop imported marks that are no longer free without
+  // touching anything the participant painted by hand.
+  calendarImported   String?
+  calendarSyncedAt   DateTime?
+  // JSON array of calendar ids the participant picked, or null = auto
+  // (every calendar visible in their Google Calendar UI, minus
+  // Google-provided public calendars like holidays/birthdays).
+  calendarIds        String?
 }
 
 model Selection {

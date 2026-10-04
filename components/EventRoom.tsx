@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GridEditor, { Brush } from "@/components/GridEditor";
+import GoogleCalendarCard from "@/components/GoogleCalendarCard";
 import ResultsPanel from "@/components/ResultsPanel";
 import { computeResults } from "@/lib/availability";
 import type { EventBundle } from "@/lib/events";
@@ -130,6 +131,16 @@ export default function EventRoom({ slug }: { slug: string }) {
     dirtyRounds.current.add(round);
   }
 
+  /** Server-authoritative round-2 map after a calendar sync/unlink. */
+  function applyImported(map: SelectionMap) {
+    editSeq.current++;
+    dirtyRounds.current.delete(2); // the calendar endpoint already persisted it
+    setSaveState("saved");
+    setGrids((g) => ({ ...g, 2: map }));
+    setRound(2); // show the imported marks — they fill the "all available" grid
+    refresh();
+  }
+
   function switchRound(r: 1 | 2) {
     if (dirtyRounds.current.has(round)) void save(round, grids[round]);
     setRound(r);
@@ -254,6 +265,11 @@ export default function EventRoom({ slug }: { slug: string }) {
       ) : (
         <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
           <section>
+            <GoogleCalendarCard
+              slug={slug}
+              participantId={me.id}
+              onImported={applyImported}
+            />
             <div className="mb-3 flex items-center justify-between">
               <div className="flex gap-1.5">
                 {([1, 2] as const).map((r) => (
