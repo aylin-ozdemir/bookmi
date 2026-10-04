@@ -81,19 +81,39 @@ interface Committed {
 
 interface Prepared {
   input: ParticipantInput;
-  /** round1 ∪ round2, round2 winning on conflicts (it's painted over round 1) */
+  /** round1 ∪ round2 — most-specific mark wins (see prepare) */
   union: SelectionMap;
   /** committed campus blocks per day, sorted by start */
   timeline: Map<string, Committed[]>;
 }
 
 function prepare(p: ParticipantInput, slotMinutes: number): Prepared {
-  // Union of both rounds, round 2 winning on conflicts. Entries with
-  // out-of-enum locations are dropped so they can't masquerade as EITHER.
+  // Union of both rounds, most-informative mark winning on conflict:
+  // a concrete campus beats EITHER/REMOTE; between two concrete campuses
+  // the round-2 repaint wins; a concrete r1 campus survives a vague r2
+  // EITHER (the preferred mark is a stated campus preference). EITHER
+  // beats REMOTE (it keeps in-person eligibility). Out-of-enum locations
+  // are dropped so they can't masquerade as EITHER.
   const union: SelectionMap = {};
-  for (const map of [p.round1, p.round2])
-    for (const [key, loc] of Object.entries(map))
-      if (VALID_LOCS.has(loc)) union[key] = loc;
+  const keys = new Set([...Object.keys(p.round1), ...Object.keys(p.round2)]);
+  const phys = (l?: string) => l === "NORTH" || l === "CENTRAL";
+  for (const key of keys) {
+    const l1 = p.round1[key];
+    const l2 = p.round2[key];
+    const loc =
+      phys(l1) && phys(l2)
+        ? l2
+        : phys(l1)
+          ? l1
+          : phys(l2)
+            ? l2
+            : l1 === "EITHER" || l2 === "EITHER"
+              ? "EITHER"
+              : l1 === "REMOTE" || l2 === "REMOTE"
+                ? "REMOTE"
+                : undefined;
+    if (loc && VALID_LOCS.has(loc)) union[key] = loc;
+  }
 
   const timeline = new Map<string, Committed[]>();
   for (const [key, loc] of Object.entries(union)) {

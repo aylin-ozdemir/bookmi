@@ -65,6 +65,20 @@ export default function ResultsPanel({ event, results, names }: Props) {
     let runInPerson = true;
     let runNotPref = false;
     let runLoc: SlotResult["suggestedLocation"];
+    let runSig = "";
+    const flush = (endMin: number) => {
+      if (runStart === null) return;
+      altRuns.push({
+        day: d,
+        startMin: runStart,
+        endMin,
+        allRemote: runRemote,
+        inPerson: runInPerson,
+        notPref: runNotPref,
+        loc: runLoc,
+      });
+      runStart = null;
+    };
     for (const t of [...times, event.endMin]) {
       const s = unionByKey.get(slotKey(d, t));
       const p = preferredByKey.get(slotKey(d, t));
@@ -74,9 +88,16 @@ export default function ResultsPanel({ event, results, names }: Props) {
         t < event.endMin &&
         !!s &&
         ((unionFull && !prefFull) || (!unionFull && everyoneMarked(s)));
+      // Runs split whenever the slot type or resolved campus changes, so a
+      // day's alternatives don't blur into one mislabeled block.
+      const sig = alt
+        ? `${unionFull}|${everyoneRemoteOnly(s)}|${s.suggestedLocation ?? ""}`
+        : "";
+      if (runStart !== null && (!alt || sig !== runSig)) flush(t);
       if (alt) {
         if (runStart === null) {
           runStart = t;
+          runSig = sig;
           runRemote = true;
           runInPerson = true;
           runNotPref = false;
@@ -86,17 +107,6 @@ export default function ResultsPanel({ event, results, names }: Props) {
         runInPerson &&= unionFull;
         runNotPref ||= !(p && everyoneMarked(p));
         runLoc ??= s.suggestedLocation;
-      } else if (runStart !== null) {
-        altRuns.push({
-          day: d,
-          startMin: runStart,
-          endMin: t,
-          allRemote: runRemote,
-          inPerson: runInPerson,
-          notPref: runNotPref,
-          loc: runLoc,
-        });
-        runStart = null;
       }
     }
   }

@@ -314,6 +314,20 @@ describe("two-round overlap", () => {
     });
   });
 
+  it("a specific round-1 campus persists over a vague round-2 EITHER", () => {
+    // a preferred Central at 12:15 and painted EITHER over it in round 2 —
+    // the union should still treat them as committed Central.
+    const res = computeResults(event, [
+      p("a", sel({ 735: "CENTRAL" }), sel({ 735: "EITHER" })),
+      p("b", {}, sel({ 735: "CENTRAL" })),
+    ]);
+    expect(verdictAt(res, "union", 735, "a")).toMatchObject({
+      ok: true,
+      mode: "in-person",
+      loc: "CENTRAL",
+    });
+  });
+
   it("travel feasibility uses the union timeline even in the preferred pass", () => {
     // a marks EITHER preferred at 12:15, and records a NORTH commitment at
     // 12:00 only in round 2 — the preferred check must still see it.
