@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BookMi
 
-## Getting Started
+Location-aware group scheduling for a two-campus university — a When2Meet-style
+availability grid built for U-M students, where every time block also says
+*where* you'll be. See `ONEPAGER.md` for the pitch and `IMPLEMENTATION_PLAN.md`
+for the architecture.
 
-First, run the development server:
+## Features
+
+- **Event formats:** virtual, in-person, or hybrid. In-person/hybrid events pick
+  North Campus, Central Campus, or "either / no preference".
+- **Location-tagged availability:** every block you paint is tagged North,
+  Central, Flexible, or Remote.
+- **Travel-aware overlap:** a configurable inter-campus bus buffer (default
+  20 min) — you can't attend a Central meeting 15 minutes after a North class.
+- **Two rounds:** ① preferred times first, ② all available times as fallback.
+  Round-2 times only count when no preferred slot works for everyone.
+- **Live results heatmap:** shade by feasible headcount, hover for per-person
+  status ("can't get here in time (20 min commute)"), suggested campus for
+  either-location events.
+
+## Stack
+
+Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · Prisma 7 on
+SQLite (better-sqlite3 driver adapter) · zod · Vitest · Playwright.
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install            # postinstall runs prisma generate
+npm run db:push        # create prisma/dev.db from the schema
+npm run dev            # http://localhost:3000
+npm run seed           # optional: demo event at /e/demo-study-group
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`DATABASE_URL` defaults to `file:./prisma/dev.db` (see `.env.example`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Testing
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test               # vitest: engine unit tests + API integration tests
+npm run typecheck      # tsc --noEmit
+npm run lint           # eslint
+npx playwright test    # UI happy path (uses system Chrome, dev server reused)
+```
 
-## Learn More
+The availability engine (`lib/availability.ts`) is pure functions — all
+overlap/travel logic is unit-testable without the DB or the browser.
 
-To learn more about Next.js, take a look at the following resources:
+## Docs
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `ONEPAGER.md` — product pitch
+- `IMPLEMENTATION_PLAN.md` — data model, engine algorithm, API surface, phases

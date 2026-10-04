@@ -86,6 +86,7 @@ export default function GridEditor({ event, value, onCell, brush, setBrush }: Pr
       </div>
 
       <div
+        data-testid="grid-editor"
         className="inline-block select-none overflow-x-auto"
         style={{ touchAction: "none" }}
       >
