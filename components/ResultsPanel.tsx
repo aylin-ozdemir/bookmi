@@ -352,7 +352,10 @@ export default function ResultsPanel({ event, results, names }: Props) {
           </p>
           <ul className="mt-1 space-y-0.5">
             {altRuns.map((r) => (
-              <li key={`${r.day}@${r.startMin}`} className="text-xs text-violet-800">
+              <li
+                key={`${r.day}@${r.startMin}-${r.endMin}-${r.loc ?? "any"}-${r.inPerson ? "i" : r.allRemote ? "r" : "b"}`}
+                className="text-xs text-violet-800"
+              >
                 {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
                 {r.inPerson && (
                   <span className="ml-2 rounded bg-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-800">
