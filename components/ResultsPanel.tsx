@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { EventResults, SlotResult } from "@/lib/availability";
-import { fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
+import { allRemoteOnly, fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
 import type { EventConfig } from "@/lib/types";
 import { slotKey } from "@/lib/types";
 
@@ -36,8 +36,27 @@ export default function ResultsPanel({ event, results, names }: Props) {
   const byKey = new Map<string, SlotResult>();
   for (const s of grid) byKey.set(slotKey(s.day, s.startMin), s);
 
+  // Remote-only overlaps: consecutive infeasible slots where every mark is
+  // remote — worth surfacing for in-person events (a hint to go hybrid).
+  // Computed from the union so the hint shows on either view.
+  const unionByKey = new Map<string, SlotResult>();
+  for (const s of results.union) unionByKey.set(slotKey(s.day, s.startMin), s);
+  const remoteRuns: { day: string; startMin: number; endMin: number }[] = [];
+  for (const d of event.days) {
+    let runStart: number | null = null;
+    for (const t of [...times, event.endMin]) {
+      const s = unionByKey.get(slotKey(d, t));
+      const remote = t < event.endMin && !!s && allRemoteOnly(s);
+      if (remote && runStart === null) runStart = t;
+      if (!remote && runStart !== null) {
+        remoteRuns.push({ day: d, startMin: runStart, endMin: t });
+        runStart = null;
+      }
+    }
+  }
+
   return (
-    <div>
+    <div data-testid="results-panel">
       <div className="mb-3">
         <div
           className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-semibold ${
@@ -110,8 +129,10 @@ export default function ResultsPanel({ event, results, names }: Props) {
                 <div
                   key={d}
                   title={tip || "nobody"}
-                  className={`h-6 w-28 shrink-0 rounded-sm border border-zinc-200 ${heatClass(s, rec)}`}
-                />
+                  className={`flex h-6 w-28 shrink-0 items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold text-violet-800 ${heatClass(s, rec)}`}
+                >
+                  {allRemoteOnly(s) ? "⌂" : ""}
+                </div>
               );
             })}
           </div>
@@ -130,11 +151,23 @@ export default function ResultsPanel({ event, results, names }: Props) {
         <span className="inline-flex items-center gap-1">
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-400" /> Remote
         </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" /> All remote-only
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-zinc-300" /> Marked, can&apos;t attend
+        </span>
       </div>
       <p className="mt-1 text-xs text-zinc-500">
         Darker green = more people can make it. Blue outline = recommended.
         Hover a cell to see who and why.
       </p>
+      {remoteRuns.length > 0 && (
+        <p className="mt-2 rounded-md bg-violet-50 px-3 py-2 text-xs text-violet-800">
+          Everyone&apos;s remote-only {remoteRuns.map((r) => `${fmtDay(r.day)} ${fmtMin(r.startMin)}–${fmtMin(r.endMin)}`).join(", ")}
+          {event.format === "IN_PERSON" ? " — switch to hybrid to make it work." : "."}
+        </p>
+      )}
     </div>
   );
 }

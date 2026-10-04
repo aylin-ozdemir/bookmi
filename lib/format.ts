@@ -68,10 +68,23 @@ export function verdictText(
   return "in person";
 }
 
-/** Heatmap cell shading by feasible fraction. */
+/** True when every marked verdict on an infeasible slot is remote-only:
+ *  people flagged the time but none can attend in person. */
+export function allRemoteOnly(slot: SlotResult): boolean {
+  if (slot.feasible !== 0) return false;
+  const marked = slot.verdicts.filter((v) => v.reason !== "not-marked");
+  return marked.length > 0 && marked.every((v) => v.reason === "remote-only");
+}
+
+/** Heatmap cell shading by feasible fraction; feasible=0 still
+ *  distinguishes "marked but can't attend" from "nobody marked". */
 export function heatClass(slot: SlotResult, recommended: boolean): string {
   const base = recommended ? "ring-2 ring-blue-600 ring-offset-1 " : "";
-  if (slot.total === 0 || slot.feasible === 0) return base + "bg-zinc-100";
+  if (slot.total === 0 || slot.feasible === 0) {
+    if (allRemoteOnly(slot)) return base + "bg-violet-200";
+    const marked = slot.verdicts.some((v) => v.reason !== "not-marked");
+    return base + (marked ? "bg-zinc-300" : "bg-zinc-100");
+  }
   const frac = slot.feasible / slot.total;
   if (frac >= 1) return base + "bg-green-500";
   if (frac >= 0.75) return base + "bg-green-300";
