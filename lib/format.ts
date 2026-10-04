@@ -90,6 +90,9 @@ export function everyoneRemoteOnly(slot: SlotResult): boolean {
 export function heatClass(slot: SlotResult, recommended: boolean): string {
   const base = recommended ? "ring-2 ring-blue-600 ring-offset-1 " : "";
   if (slot.total === 0 || slot.feasible === 0) {
+    // Everyone remote = a real overlap in the wrong format; partial remote
+    // marks get a lighter shade.
+    if (everyoneRemoteOnly(slot)) return base + "bg-violet-500";
     if (allRemoteOnly(slot)) return base + "bg-violet-200";
     const marked = slot.verdicts.some((v) => v.reason !== "not-marked");
     return base + (marked ? "bg-zinc-300" : "bg-zinc-100");

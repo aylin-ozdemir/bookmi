@@ -52,12 +52,14 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
   await cells.nth(4).click();
   await cells.nth(5).click();
 
-  // Union view: all six remote-marked slots are violet, but the overlap
-  // note only covers 6:00–8:00 where BOTH participants are remote-only.
+  // Union view: the 4 slots where BOTH are remote-only are strong violet
+  // (a real remote overlap); aylin's 2 solo remote marks are lighter.
   const results = page.getByTestId("results-panel");
   await results.getByRole("button", { name: "All availability" }).click();
-  await expect(results.locator("div.bg-violet-200")).toHaveCount(6);
+  await expect(results.locator("div.bg-violet-500")).toHaveCount(4);
+  await expect(results.locator("div.bg-violet-200")).toHaveCount(2);
   await expect(
-    results.getByText("Everyone's remote-only Wed, Oct 7 6:00 PM–8:00 PM — switch to hybrid to make it work."),
+    results.getByText(/Remote option — everyone's available, just not in person/),
   ).toBeVisible();
+  await expect(results.getByText("Wed, Oct 7 · 6:00 PM–8:00 PM")).toBeVisible();
 });

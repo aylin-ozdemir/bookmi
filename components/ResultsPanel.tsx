@@ -126,15 +126,20 @@ export default function ResultsPanel({ event, results, names }: Props) {
                 .map((v) => `${names[v.participantId] ?? "?"}: ${verdictText(v, event.travelMin)}`)
                 .join("\n");
               const full = s.total > 0 && s.feasible === s.total;
+              const everyoneRemote = everyoneRemoteOnly(s);
               return (
                 <div
                   key={d}
                   title={tip || "nobody"}
                   className={`flex h-6 w-28 shrink-0 items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold ${
-                    full ? "border-green-700 text-white" : "text-violet-800"
+                    full
+                      ? "border-green-700 text-white"
+                      : everyoneRemote
+                        ? "border-violet-700 text-white"
+                        : "text-violet-800"
                   } ${heatClass(s, rec)}`}
                 >
-                  {full ? "✓" : allRemoteOnly(s) ? "⌂" : ""}
+                  {full ? "✓" : everyoneRemote || allRemoteOnly(s) ? "⌂" : ""}
                 </div>
               );
             })}
@@ -155,7 +160,10 @@ export default function ResultsPanel({ event, results, names }: Props) {
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-400" /> Remote
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" /> All remote-only
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-500" /> Everyone remote
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" /> Remote marks
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-zinc-300" /> Marked, can&apos;t attend
@@ -167,10 +175,24 @@ export default function ResultsPanel({ event, results, names }: Props) {
         Blue outline = recommended. Hover a cell to see who and why.
       </p>
       {remoteRuns.length > 0 && (
-        <p className="mt-2 rounded-md bg-violet-50 px-3 py-2 text-xs text-violet-800">
-          Everyone&apos;s remote-only {remoteRuns.map((r) => `${fmtDay(r.day)} ${fmtMin(r.startMin)}–${fmtMin(r.endMin)}`).join(", ")}
-          {event.format === "IN_PERSON" ? " — switch to hybrid to make it work." : "."}
-        </p>
+        <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2">
+          <p className="text-xs font-semibold text-violet-900">
+            ⌂ Remote option{remoteRuns.length > 1 ? "s" : ""} — everyone&apos;s
+            available, just not in person:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {remoteRuns.map((r) => (
+              <li key={`${r.day}@${r.startMin}`} className="text-xs text-violet-800">
+                {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
+              </li>
+            ))}
+          </ul>
+          {event.format === "IN_PERSON" && (
+            <p className="mt-1 text-xs text-violet-600">
+              Switch the event to hybrid to make these work.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
