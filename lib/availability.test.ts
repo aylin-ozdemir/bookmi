@@ -109,11 +109,11 @@ describe("travel buffer — before the meeting", () => {
     });
   });
 
-  it("allows when the gap is >= travelMin", () => {
+  it("blocks when the gap is < travelMin", () => {
     const res = computeResults(ev(), [
-      p("a", sel({ 720: "NORTH", 750: "EITHER" })), // NORTH until 12:15, meeting 12:30, gap 15? no
+      p("a", sel({ 720: "NORTH", 750: "EITHER" })),
     ]);
-    // prev committed ends 12:15 (720+15); meeting at 12:30 → gap 15 < 30 → blocked
+    // prev committed ends 12:15 (720+15); meeting at 12:30 → gap 15 < 30
     expect(verdictAt(res, "preferred", 750, "a")).toMatchObject({
       ok: false,
       reason: "travel-before",
@@ -360,5 +360,87 @@ describe("edge cases", () => {
     const starts = res.union.map((s) => s.startMin);
     expect(starts[0]).toBe(720);
     expect(starts[starts.length - 1]).toBe(945); // 15:45 + 15 = 16:00 end
+  });
+});
+
+describe("engine guards & malformed input", () => {
+  it("throws on non-positive slotMinutes instead of hanging", () => {
+    expect(() => computeResults(ev({ slotMinutes: 0 }), [])).toThrow();
+    expect(() => computeResults(ev({ slotMinutes: -15 }), [])).toThrow();
+  });
+
+  it("throws on empty days / inverted window", () => {
+    expect(() => computeResults(ev({ days: [] }), [])).toThrow();
+    expect(() => computeResults(ev({ startMin: 900, endMin: 720 }), [])).toThrow();
+  });
+
+  it("out-of-enum locations do not count as attendable", () => {
+    const res = computeResults(ev({ location: "CENTRAL" }), [
+      // "north" (lowercase) and "MAYBE" are not valid BlockLocs
+      p("a", { [`${DAY}@735`]: "north", [`${DAY}@750`]: "MAYBE" } as never),
+    ]);
+    expect(verdictAt(res, "preferred", 735, "a")).toMatchObject({
+      ok: false,
+      reason: "not-marked",
+    });
+    expect(verdictAt(res, "preferred", 750, "a")).toMatchObject({
+      ok: false,
+      reason: "not-marked",
+    });
+  });
+
+  it("duplicate days produce no duplicate slots", () => {
+    const res = computeResults(ev({ days: [DAY, DAY] }), [p("a")]);
+    const daySlots = res.union.filter((s) => s.day === DAY);
+    expect(new Set(daySlots.map((s) => s.startMin)).size).toBe(daySlots.length);
+  });
+});
+
+describe("hybrid + EITHER combined", () => {
+  it("picks the campus with more in-person attendees", () => {
+    const res = computeResults(ev({ format: "HYBRID", location: "EITHER" }), [
+      p("a", sel({ 735: "CENTRAL" })),
+      p("b", sel({ 735: "CENTRAL" })),
+      p("c", sel({ 735: "NORTH" })),
+    ]);
+    const slot = res.preferred.find((s) => s.startMin === 735)!;
+    expect(slot.suggestedLocation).toBe("CENTRAL");
+    expect(slot.feasible).toBe(3); // all marked → all attend (c remotely)
+    const c = slot.verdicts.find((v) => v.participantId === "c")!;
+    expect(c).toMatchObject({ ok: true, mode: "remote" });
+  });
+});
+
+describe("suggestedLocation & recommended runs", () => {
+  it("is undefined for fixed-location and virtual events", () => {
+    const fixed = computeResults(ev({ location: "CENTRAL" }), [
+      p("a", sel({ 735: "CENTRAL" })),
+    ]);
+    expect(fixed.recommended[0].suggestedLocation).toBeUndefined();
+
+    const virt = computeResults(ev({ format: "VIRTUAL", location: "EITHER" }), [
+      p("a", sel({ 735: "REMOTE" })),
+    ]);
+    expect(virt.recommended[0].suggestedLocation).toBeUndefined();
+  });
+
+  it("runs carry and split on suggestedLocation", () => {
+    // EITHER event. Each participant is committed NORTH at 11:45–12:00 and
+    // CENTRAL at 13:00+, flexible at 12:15/12:30 (travelMin=30):
+    //  · 12:15 only NORTH is reachable (last commit was North at 12:00,
+    //    leaving 15 min — too short for Central) → NORTH run
+    //  · 12:30 only CENTRAL works (a North meeting ending 12:45 leaves only
+    //    15 min to reach the 13:00 Central commitment) → CENTRAL run
+    const sched = sel({ 705: "NORTH", 735: "EITHER", 750: "EITHER", 780: "CENTRAL" });
+    const res = computeResults(ev({ location: "EITHER" }), [
+      p("a", sched),
+      p("b", sched),
+    ]);
+    expect(res.recommendedRuns).toEqual([
+      { day: DAY, startMin: 735, endMin: 750, suggestedLocation: "NORTH" },
+      { day: DAY, startMin: 750, endMin: 765, suggestedLocation: "CENTRAL" },
+      // their committed CENTRAL block is itself a feasible slot
+      { day: DAY, startMin: 780, endMin: 795, suggestedLocation: "CENTRAL" },
+    ]);
   });
 });

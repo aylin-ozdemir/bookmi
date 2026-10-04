@@ -4,12 +4,16 @@
 // and the two-round preferred/fallback overlap.
 
 import {
+  BLOCK_LOCS,
+  BlockLoc,
   EventConfig,
   ParticipantInput,
   PhysicalCampus,
   SelectionMap,
   slotKey,
 } from "./types";
+
+const VALID_LOCS = new Set<string>(BLOCK_LOCS);
 
 export type BlockReason =
   | "not-marked"
@@ -28,6 +32,8 @@ export interface Verdict {
 
 export interface ParticipantVerdict extends Verdict {
   participantId: string;
+  /** the location the participant marked at this slot, if any */
+  loc?: BlockLoc;
 }
 
 export interface SlotResult {
@@ -50,6 +56,8 @@ export interface RecommendedRun {
   day: string;
   startMin: number;
   endMin: number;
+  /** resolved campus for EITHER events; runs split when this changes */
+  suggestedLocation?: PhysicalCampus;
 }
 
 export type ResultTier = "preferred" | "fallback" | "none";
@@ -80,13 +88,21 @@ interface Prepared {
 }
 
 function prepare(p: ParticipantInput, slotMinutes: number): Prepared {
-  const union: SelectionMap = { ...p.round1, ...p.round2 };
+  // Union of both rounds, round 2 winning on conflicts. Entries with
+  // out-of-enum locations are dropped so they can't masquerade as EITHER.
+  const union: SelectionMap = {};
+  for (const map of [p.round1, p.round2])
+    for (const [key, loc] of Object.entries(map))
+      if (VALID_LOCS.has(loc)) union[key] = loc;
+
   const timeline = new Map<string, Committed[]>();
   for (const [key, loc] of Object.entries(union)) {
     if (loc !== "NORTH" && loc !== "CENTRAL") continue;
     const at = key.lastIndexOf("@");
     const day = key.slice(0, at);
     const start = Number(key.slice(at + 1));
+    // Malformed keys are ignored rather than producing NaN arithmetic.
+    if (!day || !Number.isFinite(start)) continue;
     const list = timeline.get(day) ?? [];
     list.push({ start, end: start + slotMinutes, loc });
     timeline.set(day, list);
@@ -121,6 +137,12 @@ function travelFeasible(
   return true;
 }
 
+/** Marked location at a slot, or null when absent/out-of-enum. */
+function markedLoc(avail: SelectionMap, day: string, t0: number): BlockLoc | null {
+  const loc = avail[slotKey(day, t0)];
+  return loc != null && VALID_LOCS.has(loc) ? loc : null;
+}
+
 /** Feasibility for an in-person meeting on campus L at [day, t0). */
 function attendAtCampus(
   p: Prepared,
@@ -130,7 +152,7 @@ function attendAtCampus(
   t0: number,
   L: PhysicalCampus,
 ): Verdict {
-  const loc = avail[slotKey(day, t0)];
+  const loc = markedLoc(avail, day, t0);
   if (loc == null) return { ok: false, reason: "not-marked" };
   if (loc === "REMOTE") return { ok: false, reason: "remote-only" };
   if ((loc === "NORTH" || loc === "CENTRAL") && loc !== L)
@@ -160,7 +182,7 @@ function verdict(
   t0: number,
   campus: PhysicalCampus | null,
 ): Verdict {
-  const loc = avail[slotKey(day, t0)];
+  const loc = markedLoc(avail, day, t0);
   if (loc == null) return { ok: false, reason: "not-marked" };
 
   if (ev.format === "VIRTUAL") return { ok: true, mode: "remote" };
@@ -194,10 +216,11 @@ function evalSlot(
         ? ["NORTH", "CENTRAL"]
         : [ev.location];
 
-  let best: { result: SlotResult; score: number } | undefined;
+  let best: { result: SlotResult; inPerson: number } | undefined;
   for (const L of campuses) {
     const verdicts = preps.map((p) => ({
       participantId: p.input.id,
+      loc: markedLoc(availOf(p), day, t0) ?? undefined,
       ...verdict(p, ev, availOf(p), day, t0, L),
     }));
     const feasible = verdicts.filter((v) => v.ok).length;
@@ -211,8 +234,14 @@ function evalSlot(
       suggestedLocation:
         ev.location === "EITHER" && L ? L : undefined,
     };
-    const score = feasible * 1000 + inPerson;
-    if (!best || score > best.score) best = { result, score };
+    // Most feasible participants wins; ties go to more in-person attendees,
+    // then to the earlier campus in the list (NORTH) — deterministic.
+    if (
+      !best ||
+      feasible > best.result.feasible ||
+      (feasible === best.result.feasible && inPerson > best.inPerson)
+    )
+      best = { result, inPerson };
   }
   return best!.result;
 }
@@ -225,15 +254,31 @@ function toRecommended(s: SlotResult): RecommendedSlot {
   };
 }
 
-/** Merge consecutive recommended slots into runs for display. */
+/**
+ * Merge consecutive recommended slots into runs for display. Runs split
+ * when the suggested campus changes (EITHER events). Note: a run means
+ * "each slot is independently bookable" — on an aligned grid, each-slot
+ * feasibility already accounts for travel before/after, so adjacent
+ * feasible slots form a feasible longer meeting.
+ */
 function coalesce(recs: RecommendedSlot[], slotMinutes: number): RecommendedRun[] {
   const runs: RecommendedRun[] = [];
   for (const r of recs) {
     const last = runs[runs.length - 1];
-    if (last && last.day === r.day && last.endMin === r.startMin) {
+    if (
+      last &&
+      last.day === r.day &&
+      last.endMin === r.startMin &&
+      last.suggestedLocation === r.suggestedLocation
+    ) {
       last.endMin = r.startMin + slotMinutes;
     } else {
-      runs.push({ day: r.day, startMin: r.startMin, endMin: r.startMin + slotMinutes });
+      runs.push({
+        day: r.day,
+        startMin: r.startMin,
+        endMin: r.startMin + slotMinutes,
+        suggestedLocation: r.suggestedLocation,
+      });
     }
   }
   return runs;
@@ -249,10 +294,16 @@ export function computeResults(
   ev: EventConfig,
   participants: ParticipantInput[],
 ): EventResults {
+  // Guards — the engine also runs client-side, so a bad config must not hang.
+  if (!Number.isFinite(ev.slotMinutes) || ev.slotMinutes <= 0)
+    throw new Error("slotMinutes must be a positive number");
+  if (!(ev.startMin < ev.endMin)) throw new Error("startMin must be < endMin");
+  if (ev.days.length === 0) throw new Error("days must be non-empty");
+
   const preps = participants.map((p) => prepare(p, ev.slotMinutes));
 
   const slots: { day: string; startMin: number }[] = [];
-  for (const day of ev.days)
+  for (const day of new Set(ev.days))
     for (let t = ev.startMin; t + ev.slotMinutes <= ev.endMin; t += ev.slotMinutes)
       slots.push({ day, startMin: t });
 

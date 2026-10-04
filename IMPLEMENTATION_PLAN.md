@@ -134,7 +134,7 @@ computeResults(event, participants):
   return { recommended, tier, heatmap, perSlotBreakdown: who can/can't + reason }
 ```
 
-Breakdown reasons drive the UI copy: `on-other-campus`, `insufficient-travel-time`, `remote-only`, `not-marked`.
+Breakdown reasons drive the UI copy (implemented as): `other-campus`, `travel-before`, `travel-after`, `remote-only`, `not-marked`.
 
 ## 5. API Surface (Next.js route handlers)
 
