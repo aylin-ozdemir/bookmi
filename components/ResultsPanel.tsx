@@ -118,7 +118,7 @@ export default function ResultsPanel({ event, results, names }: Props) {
             <div className="w-14 shrink-0 text-right text-[10px] leading-6 text-zinc-400">
               {t % 60 === 0 ? fmtMin(t) : ""}
             </div>
-            {event.days.map((d) => {
+            {event.days.map((d, di) => {
               const s = byKey.get(slotKey(d, t));
               if (!s) return <div key={d} className="h-6 w-28 shrink-0" />;
               const rec = recKeys.has(slotKey(d, t));
@@ -127,19 +127,44 @@ export default function ResultsPanel({ event, results, names }: Props) {
                 .join("\n");
               const full = s.total > 0 && s.feasible === s.total;
               const everyoneRemote = everyoneRemoteOnly(s);
+              // Tooltip opens down for the top rows (would clip above),
+              // and aligns to the grid edge for the first/last columns.
+              const tipPos =
+                (t === times[0] || t === times[1] ? "top-full mt-1 " : "bottom-full mb-1 ") +
+                (di === 0
+                  ? "left-0"
+                  : di === event.days.length - 1
+                    ? "right-0"
+                    : "left-1/2 -translate-x-1/2");
               return (
-                <div
-                  key={d}
-                  title={tip || "nobody"}
-                  className={`flex h-6 w-28 shrink-0 items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold ${
-                    full
-                      ? "border-green-700 text-white"
-                      : everyoneRemote
-                        ? "border-violet-700 text-white"
-                        : "text-violet-800"
-                  } ${heatClass(s, rec)}`}
-                >
-                  {full ? "✓" : everyoneRemote || allRemoteOnly(s) ? "⌂" : ""}
+                <div key={d} className="group relative h-6 w-28 shrink-0">
+                  <div
+                    aria-label={`${d} ${fmtMin(t)} — ${tip || "nobody marked"}`}
+                    className={`flex h-full w-full items-center justify-center rounded-sm border border-zinc-200 text-[10px] font-bold ${
+                      full
+                        ? "border-green-700 text-white"
+                        : everyoneRemote
+                          ? "border-violet-700 text-white"
+                          : "text-violet-800"
+                    } ${heatClass(s, rec)}`}
+                  >
+                    {full ? "✓" : everyoneRemote || allRemoteOnly(s) ? "⌂" : ""}
+                  </div>
+                  <div
+                    className={`pointer-events-none absolute z-50 w-44 whitespace-pre-line rounded-md bg-zinc-900 px-2.5 py-1.5 text-left text-[10px] font-normal leading-snug text-zinc-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${tipPos}`}
+                  >
+                    {s.verdicts.map((v) => (
+                      <div key={v.participantId}>
+                        <span className={v.ok ? "text-green-400" : "text-zinc-400"}>
+                          {v.ok ? "✓" : "✗"}
+                        </span>{" "}
+                        <span className="font-semibold">
+                          {names[v.participantId] ?? "?"}
+                        </span>{" "}
+                        — {verdictText(v, event.travelMin)}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })}
