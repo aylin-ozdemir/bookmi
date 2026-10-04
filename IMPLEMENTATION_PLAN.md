@@ -222,3 +222,22 @@ Locked defaults (revisit if the team disagrees):
 - Google Calendar import to pre-fill availability/location from class locations.
 - Recurring weekly meetings; iCal export of the booked slot.
 - Discord/Slack share + notifications when the team reaches full overlap.
+
+## 12. Build Status (as of commit `6eeeb9f`)
+
+**Done — all four phases shipped and verified:**
+
+- P1 scaffold + engine: 30 unit tests, `computeResults` fully implements §4 (per-slot location tags, bidirectional travel buffer, EITHER-campus resolution, two-round tier logic). Subagent spec-review applied: config guards, invalid-loc rejection, run-level `suggestedLocation`.
+- P2 API: create / join (idempotent by name) / per-round selections PUT (grid-validated, replace-semantics) / GET bundle with results. 9 API tests incl. end-to-end travel-block scenario.
+- P3 UI: drag-paint grid with 4-location brush (mouse + touch), two-round tabs, debounced autosave, participant roster with round status, live heatmap via shared engine, recommended runs + suggested-campus badges, per-person verdict tooltips.
+- P4: `npm run seed` → `/e/demo-study-group` (the naive-overlap-fails demo story, fallback tier + Central 1:00–2:30 recommendation); 2 Playwright specs covering the full UI flow and the commute story; README.
+
+**Verification:** `npm test` 39 green · `tsc --noEmit` clean · `eslint` clean · `next build` green · `npx playwright test` 2 green.
+
+**Known limitations (accepted for hackathon):**
+- Paint grid is not keyboard/screen-reader operable (cells have `aria-label`s only) — the biggest accessibility gap.
+- Results tooltips use native `title` — keyboard users can't reach per-slot breakdowns.
+- Polling (4s) not websockets; fine for a hackathon demo.
+- SQLite is local-file only; a real deploy needs Postgres + env config.
+- No auth beyond the share link; any visitor can join (When2Meet parity).
+- Join dedupe is by exact name match — two different people named "Sam" collide.
