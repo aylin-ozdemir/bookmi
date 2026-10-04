@@ -53,8 +53,12 @@ test("travel buffer picks the commutable slot", async ({ page, request }) => {
   await cells.nth(4).click();
 
   // 12:45 is only 15 min after her North commitment — unreachable.
-  // 1:00 PM works for everyone → recommended, shown instantly.
+  // 1:00 PM works for everyone → recommended, shown instantly, and the
+  // panel defaults to "First choices" since a preferred slot works.
   await expect(page.getByText("Everyone's first choice works")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "First choices" }),
+  ).toHaveClass(/bg-zinc-900/);
   await expect(
     page.getByRole("listitem").filter({ hasText: "1:00 PM" }),
   ).toBeVisible();

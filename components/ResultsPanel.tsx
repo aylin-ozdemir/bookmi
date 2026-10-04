@@ -19,11 +19,12 @@ const TIER_COPY = {
 } as const;
 
 export default function ResultsPanel({ event, results, names }: Props) {
-  // Default to the view that actually produced the recommendation: if only
-  // the union (or nothing) works, "All availability" is what matters first.
-  const [view, setView] = useState<"preferred" | "union">(
-    results.tier === "preferred" ? "preferred" : "union",
-  );
+  // The view follows the tier that produced the recommendation — first
+  // choices when one works for everyone, all availability otherwise —
+  // until the user picks a view manually, which then sticks.
+  const [manual, setManual] = useState<"preferred" | "union" | null>(null);
+  const view = manual ?? (results.tier === "preferred" ? "preferred" : "union");
+  const setView = (v: "preferred" | "union") => setManual(v);
   const grid = view === "preferred" ? results.preferred : results.union;
   // Recommended rings only make sense on the view that produced them.
   const showRings =

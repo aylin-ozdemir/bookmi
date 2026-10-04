@@ -52,10 +52,13 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
   await cells.nth(4).click();
   await cells.nth(5).click();
 
-  // Union view: the 4 slots where BOTH are remote-only are strong violet
-  // (a real remote overlap); aylin's 2 solo remote marks are lighter.
+  // Nothing works in first choices, so the panel must already be on
+  // "All availability": the 4 slots where BOTH are remote-only are strong
+  // violet (a real remote overlap); aylin's 2 solo remote marks are lighter.
   const results = page.getByTestId("results-panel");
-  await results.getByRole("button", { name: "All availability" }).click();
+  await expect(
+    results.getByRole("button", { name: "All availability" }),
+  ).toHaveClass(/bg-zinc-900/);
   await expect(results.locator("div.bg-violet-500")).toHaveCount(4);
   await expect(results.locator("div.bg-violet-200")).toHaveCount(2);
   await expect(
