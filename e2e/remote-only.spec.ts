@@ -11,7 +11,7 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
       format: "IN_PERSON",
       location: "EITHER",
       days: [day],
-      startMin: 1080, // 6:00 PM
+      startMin: 1020, // 5:00 PM
       endMin: 1200, // 8:00 PM
       slotMinutes: 30,
       travelMin: 30,
@@ -19,7 +19,7 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
   });
   const { slug } = await create.json();
 
-  // Aylin marks 6:00–8:00 remote in round 2 via API.
+  // Aylin marks 5:00–8:00 remote in round 2 via API.
   const join = await request.post(`/api/events/${slug}/participants`, {
     data: { name: "aylin" },
   });
@@ -28,6 +28,8 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
     data: {
       round: 2,
       selections: {
+        [`${day}@1020`]: "REMOTE",
+        [`${day}@1050`]: "REMOTE",
         [`${day}@1080`]: "REMOTE",
         [`${day}@1110`]: "REMOTE",
         [`${day}@1140`]: "REMOTE",
@@ -45,16 +47,17 @@ test("remote-only marks populate the results heatmap", async ({ page, request })
   await page.getByRole("button", { name: "② All available" }).click();
   await page.getByRole("button", { name: "Remote" }).click();
   const cells = page.locator('[data-testid="grid-editor"] div.h-6.w-28');
-  await cells.nth(0).click();
-  await cells.nth(1).click();
   await cells.nth(2).click();
   await cells.nth(3).click();
+  await cells.nth(4).click();
+  await cells.nth(5).click();
 
-  // Union view: all four slots show the remote-only glyph.
+  // Union view: all six remote-marked slots are violet, but the overlap
+  // note only covers 6:00–8:00 where BOTH participants are remote-only.
   const results = page.getByTestId("results-panel");
   await results.getByRole("button", { name: "All availability" }).click();
-  await expect(results.locator("div.bg-violet-200")).toHaveCount(4);
+  await expect(results.locator("div.bg-violet-200")).toHaveCount(6);
   await expect(
-    results.getByText(/Everyone's remote-only.*6:00 PM.*8:00 PM/),
+    results.getByText("Everyone's remote-only Wed, Oct 7 6:00 PM–8:00 PM — switch to hybrid to make it work."),
   ).toBeVisible();
 });

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { EventResults, SlotResult } from "@/lib/availability";
-import { allRemoteOnly, fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
+import { allRemoteOnly, everyoneRemoteOnly, fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
 import type { EventConfig } from "@/lib/types";
 import { slotKey } from "@/lib/types";
 
@@ -46,7 +46,7 @@ export default function ResultsPanel({ event, results, names }: Props) {
     let runStart: number | null = null;
     for (const t of [...times, event.endMin]) {
       const s = unionByKey.get(slotKey(d, t));
-      const remote = t < event.endMin && !!s && allRemoteOnly(s);
+      const remote = t < event.endMin && !!s && everyoneRemoteOnly(s);
       if (remote && runStart === null) runStart = t;
       if (!remote && runStart !== null) {
         remoteRuns.push({ day: d, startMin: runStart, endMin: t });

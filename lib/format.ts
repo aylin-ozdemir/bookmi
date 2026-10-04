@@ -69,11 +69,20 @@ export function verdictText(
 }
 
 /** True when every marked verdict on an infeasible slot is remote-only:
- *  people flagged the time but none can attend in person. */
+ *  the only availability flagged here is remote. */
 export function allRemoteOnly(slot: SlotResult): boolean {
   if (slot.feasible !== 0) return false;
   const marked = slot.verdicts.filter((v) => v.reason !== "not-marked");
   return marked.length > 0 && marked.every((v) => v.reason === "remote-only");
+}
+
+/** Stricter: EVERY participant is remote-only — a genuine remote overlap. */
+export function everyoneRemoteOnly(slot: SlotResult): boolean {
+  return (
+    slot.feasible === 0 &&
+    slot.verdicts.length > 0 &&
+    slot.verdicts.every((v) => v.reason === "remote-only")
+  );
 }
 
 /** Heatmap cell shading by feasible fraction; feasible=0 still
