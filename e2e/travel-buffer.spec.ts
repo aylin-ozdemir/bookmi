@@ -60,6 +60,6 @@ test("travel buffer picks the commutable slot", async ({ page, request }) => {
     page.getByRole("button", { name: "First choices" }),
   ).toHaveClass(/bg-zinc-900/);
   await expect(
-    page.getByRole("listitem").filter({ hasText: "1:00 PM" }),
+    page.getByRole("listitem").filter({ hasText: "Tue, Oct 6 · 1:00 PM–1:15 PM" }),
   ).toBeVisible();
 });

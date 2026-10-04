@@ -85,6 +85,15 @@ export function everyoneRemoteOnly(slot: SlotResult): boolean {
   );
 }
 
+/** Every participant marked this slot (any location) — technically free
+ *  for all, even if format/location/travel keeps it from being a candidate. */
+export function everyoneMarked(slot: SlotResult): boolean {
+  return (
+    slot.verdicts.length > 0 &&
+    slot.verdicts.every((v) => v.reason !== "not-marked")
+  );
+}
+
 /** Heatmap cell shading by feasible fraction; feasible=0 still
  *  distinguishes "marked but can't attend" from "nobody marked". */
 export function heatClass(slot: SlotResult, recommended: boolean): string {

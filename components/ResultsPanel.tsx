@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { EventResults, SlotResult } from "@/lib/availability";
-import { allRemoteOnly, everyoneRemoteOnly, fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
+import { allRemoteOnly, everyoneMarked, everyoneRemoteOnly, fmtDay, fmtMin, heatClass, verdictText } from "@/lib/format";
 import type { EventConfig } from "@/lib/types";
 import { slotKey } from "@/lib/types";
 
@@ -41,20 +41,28 @@ export default function ResultsPanel({ event, results, names }: Props) {
   const byKey = new Map<string, SlotResult>();
   for (const s of grid) byKey.set(slotKey(s.day, s.startMin), s);
 
-  // Remote-only overlaps: consecutive infeasible slots where every mark is
-  // remote — worth surfacing for in-person events (a hint to go hybrid).
-  // Computed from the union so the hint shows on either view.
+  // Alternative times: every participant marked the slot but it isn't fully
+  // feasible (remote-only, travel-blocked, wrong campus). Computed from the
+  // union so the card shows on either view; runs track whether they are
+  // entirely remote-only for the chip + hybrid hint.
   const unionByKey = new Map<string, SlotResult>();
   for (const s of results.union) unionByKey.set(slotKey(s.day, s.startMin), s);
-  const remoteRuns: { day: string; startMin: number; endMin: number }[] = [];
+  const altRuns: { day: string; startMin: number; endMin: number; allRemote: boolean }[] = [];
   for (const d of event.days) {
     let runStart: number | null = null;
+    let runRemote = true;
     for (const t of [...times, event.endMin]) {
       const s = unionByKey.get(slotKey(d, t));
-      const remote = t < event.endMin && !!s && everyoneRemoteOnly(s);
-      if (remote && runStart === null) runStart = t;
-      if (!remote && runStart !== null) {
-        remoteRuns.push({ day: d, startMin: runStart, endMin: t });
+      const alt =
+        t < event.endMin && !!s && s.feasible < s.total && everyoneMarked(s);
+      if (alt) {
+        if (runStart === null) {
+          runStart = t;
+          runRemote = true;
+        }
+        runRemote &&= everyoneRemoteOnly(s);
+      } else if (runStart !== null) {
+        altRuns.push({ day: d, startMin: runStart, endMin: t, allRemote: runRemote });
         runStart = null;
       }
     }
@@ -210,22 +218,28 @@ export default function ResultsPanel({ event, results, names }: Props) {
           </ul>
         </div>
       )}
-      {remoteRuns.length > 0 && (
+      {altRuns.length > 0 && (
         <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2">
           <p className="text-xs font-semibold text-violet-900">
-            ⌂ Remote option{remoteRuns.length > 1 ? "s" : ""} — everyone&apos;s
-            available, just not in person:
+            ⌂ Alternative{altRuns.length > 1 ? "s" : ""} — everyone&apos;s free,
+            but it doesn&apos;t fully work
+            {event.format === "IN_PERSON" ? " in person" : ""}:
           </p>
           <ul className="mt-1 space-y-0.5">
-            {remoteRuns.map((r) => (
+            {altRuns.map((r) => (
               <li key={`${r.day}@${r.startMin}`} className="text-xs text-violet-800">
                 {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
+                {r.allRemote && (
+                  <span className="ml-2 rounded bg-violet-200 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">
+                    remote-only
+                  </span>
+                )}
               </li>
             ))}
           </ul>
-          {event.format === "IN_PERSON" && (
+          {event.format === "IN_PERSON" && altRuns.some((r) => r.allRemote) && (
             <p className="mt-1 text-xs text-violet-600">
-              Switch the event to hybrid to make these work.
+              Switch the event to hybrid to make the remote-only times work.
             </p>
           )}
         </div>
