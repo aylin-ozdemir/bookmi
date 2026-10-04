@@ -121,10 +121,8 @@ describe("travel buffer — before the meeting", () => {
   });
 
   it("exactly travelMin of gap is feasible (boundary)", () => {
-    const res = computeResults(ev(), [
-      p("a", sel({ 720: "NORTH", 750: "EITHER" }), sel({})),
-    ]);
-    // same as above: gap 15 — blocked. Now shift meeting to 12:45 → gap 30 → ok
+    // NORTH until 12:15 + meeting at 12:45 → gap exactly 30 = travelMin → ok.
+    // (Meeting at 12:30 would leave only 15 min → blocked; covered above.)
     const res2 = computeResults(ev(), [p("a", sel({ 720: "NORTH", 765: "EITHER" }))]);
     expect(verdictAt(res2, "preferred", 765, "a")).toMatchObject({
       ok: true,

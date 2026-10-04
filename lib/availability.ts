@@ -4,7 +4,6 @@
 // and the two-round preferred/fallback overlap.
 
 import {
-  BlockLoc,
   EventConfig,
   ParticipantInput,
   PhysicalCampus,
