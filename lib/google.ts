@@ -138,6 +138,7 @@ export function idTokenEmail(idToken: string | undefined): string | null {
 // ── Calendar events ──────────────────────────────────────────────────
 
 interface GcalEvent {
+  id?: string;
   status?: string;
   transparency?: string;
   summary?: string;
@@ -273,6 +274,7 @@ export function toCalBlocks(items: GcalEvent[]): CalBlock[] {
         60000;
       if (durationMin <= 0) continue;
       blocks.push({
+        eventId: it.id,
         summary,
         location,
         startDay: it.start.date,
@@ -288,6 +290,7 @@ export function toCalBlocks(items: GcalEvent[]): CalBlock[] {
         (Date.parse(it.end.dateTime) - Date.parse(it.start.dateTime)) / 60000;
       if (durationMin <= 0) continue;
       blocks.push({
+        eventId: it.id,
         summary,
         location,
         startDay: s.day,

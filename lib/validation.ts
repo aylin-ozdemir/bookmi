@@ -28,6 +28,21 @@ export const calendarSelectionSchema = z.object({
   calendarIds: z.array(z.string().min(1).max(300)).max(200).nullable(),
 });
 
+export const calendarPatchSchema = z.object({
+  calendarIds: z
+    .array(z.string().min(1).max(300))
+    .max(200)
+    .nullable()
+    .optional(),
+  // event id → label correction; null removes the override
+  eventOverrides: z
+    .record(
+      z.string().min(1).max(500),
+      z.enum(["busy", "study", "preferred", "ignore"]).nullable(),
+    )
+    .optional(),
+});
+
 export const saveSelectionsSchema = z.object({
   round: z.union([z.literal(1), z.literal(2)]),
   selections: z

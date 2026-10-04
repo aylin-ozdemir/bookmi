@@ -75,42 +75,68 @@ export function buildClassifyRequest(blocks: CalBlock[], offset = 0) {
   };
 }
 
+/** What Jev actually said about one block, for display and gating. */
+export interface JevVerdict {
+  /** Raw model label; null when the block never reached the model. */
+  label: JevLabel | null;
+  confidence: number | null;
+}
+
+export interface JevResult {
+  /** Gated classes per block — null = defer to the deterministic rules. */
+  classes: (BlockClass | null)[];
+  verdicts: JevVerdict[];
+}
+
+const LABEL_TO_CLASS: Record<JevLabel, BlockClass> = {
+  busy: "busy",
+  preferred: "preferred",
+  flexible: "study",
+  ignore: "ignore",
+};
+
+function isJevLabel(x: unknown): x is JevLabel {
+  return typeof x === "string" && x in LABEL_TO_CLASS;
+}
+
 /** Map one question's answer to a BlockClass, or null to defer to rules. */
 export function answerToClass(answer: unknown): BlockClass | null {
   const a = answer as { choice?: string; confidence?: number } | null;
-  if (!a || (a.confidence ?? 0) < MIN_CONFIDENCE) return null;
-  switch (a.choice as JevLabel) {
-    case "busy":
-      return "busy";
-    case "preferred":
-      return "preferred";
-    case "flexible":
-      return "study";
-    case "ignore":
-      return "ignore";
-    default:
-      return null;
+  if (!a || (a.confidence ?? 0) < MIN_CONFIDENCE || !isJevLabel(a.choice)) {
+    return null;
   }
+  return LABEL_TO_CLASS[a.choice];
+}
+
+/** Raw label + confidence for display, regardless of the gate. */
+function answerToVerdict(answer: unknown): JevVerdict {
+  const a = answer as { choice?: string; confidence?: number } | null;
+  return {
+    label: a && isJevLabel(a.choice) ? a.choice : null,
+    confidence: typeof a?.confidence === "number" ? a.confidence : null,
+  };
 }
 
 /**
- * Classify blocks with Jev. Result indexes match `blocks`; entries are null
- * where the model was unsure or unreachable — the caller should apply the
- * deterministic classifier there. Transparent blocks never reach the model
- * (they're "ignore" by definition).
+ * Classify blocks with Jev. classes[i] is null where the model was unsure
+ * or unreachable — the caller should apply the deterministic classifier
+ * there. Transparent blocks never reach the model (they're "ignore" by
+ * definition). verdicts[i] keeps the raw answer for display.
  */
-export async function classifyBlocks(
-  blocks: CalBlock[],
-): Promise<(BlockClass | null)[]> {
-  const out: (BlockClass | null)[] = blocks.map(() => null);
+export async function classifyBlocks(blocks: CalBlock[]): Promise<JevResult> {
+  const classes: (BlockClass | null)[] = blocks.map(() => null);
+  const verdicts: JevVerdict[] = blocks.map(() => ({
+    label: null,
+    confidence: null,
+  }));
   const pending: { b: CalBlock; i: number }[] = [];
   blocks.forEach((b, i) => {
-    if (b.transparent) out[i] = "ignore";
+    if (b.transparent) classes[i] = "ignore";
     else pending.push({ b, i });
   });
 
   const key = process.env.TYPESAFE_API_KEY;
-  if (!key) return out;
+  if (!key) return { classes, verdicts };
 
   for (let start = 0; start < pending.length; start += CHUNK) {
     const chunk = pending.slice(start, start + CHUNK);
@@ -127,11 +153,13 @@ export async function classifyBlocks(
       if (!res.ok) continue;
       const data = (await res.json()) as { answers?: Record<string, unknown> };
       chunk.forEach(({ i }, j) => {
-        out[i] = answerToClass(data.answers?.[`b${start + j}`]);
+        const raw = data.answers?.[`b${start + j}`];
+        verdicts[i] = answerToVerdict(raw);
+        classes[i] = answerToClass(raw);
       });
     } catch {
       // network/parse failure — those indexes stay null → rule fallback
     }
   }
-  return out;
+  return { classes, verdicts };
 }

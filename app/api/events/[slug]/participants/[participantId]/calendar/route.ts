@@ -1,4 +1,10 @@
-import { computeImport, defaultCalendarIncluded } from "@/lib/calendarImport";
+import {
+  applyOverrides,
+  classify,
+  computeImport,
+  defaultCalendarIncluded,
+  type BlockClass,
+} from "@/lib/calendarImport";
 import { classifyBlocks, jevConfigured } from "@/lib/jev";
 import { getPrisma } from "@/lib/db";
 import {
@@ -18,7 +24,7 @@ import {
   slotKey,
 } from "@/lib/types";
 import type { ParticipantModel } from "@/lib/generated/prisma/models/Participant";
-import { calendarSelectionSchema } from "@/lib/validation";
+import { calendarPatchSchema } from "@/lib/validation";
 
 type Ctx = RouteContext<"/api/events/[slug]/participants/[participantId]/calendar">;
 type ParticipantRow = ParticipantModel;
@@ -39,6 +45,11 @@ const linked = (p: ParticipantRow) =>
 /** Stored calendar picks, or null = auto mode. */
 function storedCalIds(p: ParticipantRow): string[] | null {
   return p.calendarIds ? (JSON.parse(p.calendarIds) as string[]) : null;
+}
+
+/** User's per-event label corrections, keyed by Google event id. */
+function storedOverrides(p: ParticipantRow): Record<string, BlockClass> {
+  return JSON.parse(p.calendarOverrides ?? "{}") as Record<string, BlockClass>;
 }
 
 /**
@@ -143,7 +154,7 @@ export async function GET(_request: Request, ctx: Ctx) {
   return Response.json(body);
 }
 
-/** Save an explicit calendar selection (or null → back to auto). */
+/** Save calendar picks and/or per-event label overrides. */
 export async function PATCH(request: Request, ctx: Ctx) {
   const { slug, participantId } = await ctx.params;
   const found = await load(slug, participantId);
@@ -153,20 +164,34 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return Response.json({ error: "calendar not linked" }, { status: 409 });
   }
 
-  const parsed = calendarSelectionSchema.safeParse(
+  const parsed = calendarPatchSchema.safeParse(
     await request.json().catch(() => null),
   );
   if (!parsed.success) {
-    return Response.json({ error: "invalid calendarIds" }, { status: 400 });
+    return Response.json({ error: "invalid patch" }, { status: 400 });
+  }
+
+  const data: { calendarIds?: string | null; calendarOverrides?: string } = {};
+  if ("calendarIds" in parsed.data) {
+    data.calendarIds = parsed.data.calendarIds
+      ? JSON.stringify(parsed.data.calendarIds)
+      : null;
+  }
+  if (parsed.data.eventOverrides) {
+    const cur = storedOverrides(participant);
+    for (const [id, cls] of Object.entries(parsed.data.eventOverrides)) {
+      if (cls === null) delete cur[id];
+      else cur[id] = cls;
+    }
+    data.calendarOverrides = JSON.stringify(cur);
+  }
+  if (Object.keys(data).length === 0) {
+    return Response.json({ error: "nothing to update" }, { status: 400 });
   }
 
   await prisma.participant.update({
     where: { id: participant.id },
-    data: {
-      calendarIds: parsed.data.calendarIds
-        ? JSON.stringify(parsed.data.calendarIds)
-        : null,
-    },
+    data,
   });
   return Response.json({ saved: true });
 }
@@ -211,6 +236,7 @@ export async function DELETE(_request: Request, ctx: Ctx) {
         calendarImported: null,
         calendarSyncedAt: null,
         calendarIds: null,
+        calendarOverrides: null,
       },
     }),
   ]);
@@ -275,6 +301,14 @@ export async function POST(_request: Request, ctx: Ctx) {
   let result = emptyImport;
   let calendars = 0;
   let eventCount = 0;
+  let verdicts: {
+    id: string | null;
+    title: string;
+    when: string;
+    class: BlockClass;
+    source: "jev" | "rules" | "override";
+    confidence: number | null;
+  }[] = [];
   try {
     // Tokens linked before the calendar-list scope was granted 403 on
     // listCalendars — fall back to primary only.
@@ -318,9 +352,33 @@ export async function POST(_request: Request, ctx: Ctx) {
         0,
       );
       // Jev classifies each block (busy / preferred / flexible / ignore);
-      // entries it leaves null fall back to the regex rules in computeImport.
-      const classes = jevConfigured() ? await classifyBlocks(blocks) : undefined;
-      result = computeImport(config, blocks, classes ?? undefined);
+      // nulls fall back to the regex rules in computeImport, and the
+      // user's stored per-event corrections beat both.
+      const jev = jevConfigured() ? await classifyBlocks(blocks) : null;
+      const overrides = storedOverrides(participant);
+      const classes = applyOverrides(
+        blocks,
+        jev?.classes ?? blocks.map(() => null),
+        overrides,
+      );
+      result = computeImport(config, blocks, classes);
+      verdicts = blocks.map((b, i) => {
+        const over = b.eventId ? overrides[b.eventId] : undefined;
+        const hh = String(Math.floor(b.startMin / 60)).padStart(2, "0");
+        const mm = String(b.startMin % 60).padStart(2, "0");
+        return {
+          id: b.eventId ?? null,
+          title: b.summary,
+          when: `${b.startDay} ${hh}:${mm}`,
+          class: classes[i] ?? classify(b),
+          source: over
+            ? ("override" as const)
+            : !b.transparent && jev?.classes[i]
+              ? ("jev" as const)
+              : ("rules" as const),
+          confidence: jev?.verdicts[i]?.confidence ?? null,
+        };
+      });
     }
   } catch (e) {
     return Response.json(
@@ -379,10 +437,12 @@ export async function POST(_request: Request, ctx: Ctx) {
   return Response.json({
     selections: mergedR2,
     preferred: mergedR1,
+    verdicts,
     stats: {
       ...result.stats,
       calendars,
       events: eventCount,
+      overrides: verdicts.filter((v) => v.source === "override").length,
       classifier: jevConfigured() ? "jev" : "rules",
     },
   });

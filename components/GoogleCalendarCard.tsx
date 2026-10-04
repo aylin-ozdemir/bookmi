@@ -21,6 +21,38 @@ interface Status {
   calendars: CalEntry[] | null;
 }
 
+type BlockClass = "busy" | "study" | "preferred" | "ignore";
+
+interface Verdict {
+  id: string | null;
+  title: string;
+  when: string;
+  class: BlockClass;
+  source: "jev" | "rules" | "override";
+  confidence: number | null;
+}
+
+const CLASS_LABEL: Record<BlockClass, string> = {
+  busy: "busy",
+  study: "flexible",
+  preferred: "preferred",
+  ignore: "ignored",
+};
+
+const CLASS_STYLE: Record<BlockClass, string> = {
+  busy: "bg-red-100 text-red-700",
+  study: "bg-emerald-100 text-emerald-700",
+  preferred: "bg-blue-100 text-blue-700",
+  ignore: "bg-zinc-100 text-zinc-500",
+};
+
+const CLASS_BUTTONS: [string, BlockClass][] = [
+  ["busy", "busy"],
+  ["flexible", "study"],
+  ["preferred", "preferred"],
+  ["ignore", "ignore"],
+];
+
 interface Props {
   slug: string;
   participantId: string;
@@ -35,6 +67,7 @@ interface Props {
  */
 export default function GoogleCalendarCard({ slug, participantId, onImported }: Props) {
   const [status, setStatus] = useState<Status | null>(null);
+  const [verdicts, setVerdicts] = useState<Verdict[]>([]);
   const [busy, setBusy] = useState<"sync" | "unlink" | null>(null);
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const didAutoSync = useRef(false);
@@ -67,6 +100,7 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
         return;
       }
       onImportedRef.current(data.selections, data.preferred);
+      setVerdicts(data.verdicts ?? []);
       const {
         marked = 0,
         study = 0,
@@ -128,6 +162,7 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         onImportedRef.current(data.selections ?? {}, data.preferred ?? {});
+        setVerdicts([]);
         setStatus({
           configured: status.configured,
           jev: status.jev,
@@ -175,6 +210,21 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
   };
 
   const resetCalendars = () => void applyCalendarChoice(null);
+
+  /** Persist a label correction (or clear it with null), then re-sync. */
+  const setOverride = async (eventId: string, cls: BlockClass | null) => {
+    try {
+      const res = await fetch(api, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventOverrides: { [eventId]: cls } }),
+      });
+      if (res.ok) void sync();
+      else setMsg({ text: "Couldn't save the correction.", error: true });
+    } catch {
+      setMsg({ text: "Network error — try again.", error: true });
+    }
+  };
 
   return (
     <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-3">
@@ -249,6 +299,76 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
                   Reset to auto (your own calendars)
                 </button>
               )}
+            </details>
+          )}
+          {verdicts.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer select-none text-xs text-zinc-500">
+                How your events were classified{" "}
+                <span className="font-semibold text-zinc-700">
+                  ({verdicts.length})
+                </span>
+              </summary>
+              <p className="mt-1 text-[11px] leading-4 text-zinc-400">
+                Wrong label? Click one to correct it — corrections stick
+                across re-syncs.
+              </p>
+              <div className="mt-1.5 max-h-48 space-y-1 overflow-y-auto rounded border border-zinc-100 bg-zinc-50 p-2">
+                {verdicts.map((v, i) => (
+                  <div key={v.id ?? i} className="text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-zinc-700">
+                        {v.title || "(untitled)"}
+                        <span className="text-zinc-400"> · {v.when}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <span
+                          className={`rounded px-1 py-px text-[10px] font-medium ${CLASS_STYLE[v.class]}`}
+                        >
+                          {CLASS_LABEL[v.class]}
+                        </span>
+                        {v.source === "jev" && v.confidence != null && (
+                          <span className="text-[10px] text-zinc-400">
+                            {Math.round(v.confidence * 100)}%
+                          </span>
+                        )}
+                        {v.source === "override" && (
+                          <span className="text-[10px] font-medium text-amber-600">
+                            you
+                          </span>
+                        )}
+                        {v.source === "rules" && (
+                          <span className="text-[10px] text-zinc-400">rules</span>
+                        )}
+                      </span>
+                    </div>
+                    {v.id && (
+                      <div className="mt-0.5 flex gap-2 pl-0.5">
+                        {CLASS_BUTTONS.map(([label, cls]) => (
+                          <button
+                            key={cls}
+                            type="button"
+                            disabled={busy != null}
+                            onClick={() =>
+                              setOverride(
+                                v.id!,
+                                v.source === "override" && v.class === cls
+                                  ? null
+                                  : cls,
+                              )
+                            }
+                            className={`text-[10px] hover:underline disabled:opacity-50 ${
+                              v.class === cls ? "font-semibold text-zinc-700" : "text-zinc-400"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </details>
           )}
         </div>

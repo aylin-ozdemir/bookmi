@@ -18,6 +18,8 @@ import {
 
 /** One calendar event normalized to event-local (America/Detroit) minutes. */
 export interface CalBlock {
+  /** Google event id — stable key for per-event overrides */
+  eventId?: string;
   summary: string;
   location: string;
   /** ISO date the block starts on, local time */
@@ -118,6 +120,18 @@ interface Interval {
   start: number; // absolute minutes (dayIndex * 1440 + minute)
   end: number;
   location: string;
+}
+
+/** Precedence: user override > model/rule class. Keyed by Google event id. */
+export function applyOverrides(
+  blocks: CalBlock[],
+  classes: (BlockClass | null)[],
+  overrides: Record<string, BlockClass>,
+): (BlockClass | null)[] {
+  return classes.map((c, i) => {
+    const id = blocks[i].eventId;
+    return id ? (overrides[id] ?? c) : c;
+  });
 }
 
 export function computeImport(

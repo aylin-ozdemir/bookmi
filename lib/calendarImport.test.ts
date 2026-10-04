@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOverrides,
   CalBlock,
   classify,
   computeImport,
@@ -251,5 +252,25 @@ describe("computeImport", () => {
     expect(stats.study).toBe(1);
     expect(stats.ignored).toBe(1);
     expect(stats.busy).toBe(0);
+  });
+});
+
+describe("applyOverrides", () => {
+  it("overrides classes by event id", () => {
+    const blocks = [
+      block({ eventId: "a" }),
+      block({ eventId: "b" }),
+      block({ eventId: "c" }),
+    ];
+    expect(
+      applyOverrides(blocks, ["busy", "study", null], { b: "ignore" }),
+    ).toEqual(["busy", "ignore", null]);
+  });
+
+  it("ignores unknown ids and blocks without an id", () => {
+    const blocks = [block({}), block({ eventId: "x" })];
+    expect(
+      applyOverrides(blocks, ["busy", "busy"], { "": "ignore", missing: "study" }),
+    ).toEqual(["busy", "busy"]);
   });
 });

@@ -44,9 +44,11 @@ model Participant {
   calendarImported   String?
   calendarSyncedAt   DateTime?
   // JSON array of calendar ids the participant picked, or null = auto
-  // (every calendar visible in their Google Calendar UI, minus
-  // Google-provided public calendars like holidays/birthdays).
+  // (calendars they can write on — owner/writer accessRole).
   calendarIds        String?
+  // JSON map of event id → BlockClass: user's manual corrections to the
+  // classifier's verdicts, applied on every sync.
+  calendarOverrides  String?
 }
 
 model Selection {
