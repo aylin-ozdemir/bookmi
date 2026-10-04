@@ -131,12 +131,14 @@ export default function EventRoom({ slug }: { slug: string }) {
     dirtyRounds.current.add(round);
   }
 
-  /** Server-authoritative round-2 map after a calendar sync/unlink. */
-  function applyImported(map: SelectionMap) {
+  /** Server-authoritative grids after a calendar sync/unlink. */
+  function applyImported(map: SelectionMap, preferred?: SelectionMap) {
     editSeq.current++;
-    dirtyRounds.current.delete(2); // the calendar endpoint already persisted it
+    // The calendar endpoint already persisted both rounds.
+    dirtyRounds.current.delete(2);
+    if (preferred) dirtyRounds.current.delete(1);
     setSaveState("saved");
-    setGrids((g) => ({ ...g, 2: map }));
+    setGrids((g) => ({ ...g, 1: preferred ?? g[1], 2: map }));
     setRound(2); // show the imported marks — they fill the "all available" grid
     refresh();
   }

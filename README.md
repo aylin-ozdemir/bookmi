@@ -18,14 +18,18 @@ for the architecture.
 - **Live results heatmap:** shade by feasible headcount, hover for per-person
   status ("can't get here in time (20 min commute)"), suggested campus for
   either-location events.
-- **Optional Google Calendar import:** link a Google account to auto-fill your
-  "all available" grid from your calendar's free time. Long "study"-type
-  blocks count as available (and can carry a campus tag from their location).
+- **Optional Google Calendar import:** link a Google account to auto-fill
+  your grids from your calendar's free time. Events are classified
+  semantically by TypeSafe's **Jev** model — busy blocks the slot, movable
+  time counts as available, deliberate work blocks also fill the
+  "preferred" grid, and reminders/noise are ignored (regex rules as
+  fallback). Campus names in locations tag the slot.
 
 ## Stack
 
 Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · Prisma 7 on
-SQLite (better-sqlite3 driver adapter) · zod · Vitest · Playwright.
+SQLite (better-sqlite3 driver adapter) · zod · TypeSafe **Jev** (System One
+model) for calendar-event classification · Vitest · Playwright.
 
 ## Getting started
 
@@ -55,6 +59,14 @@ Google's holiday calendars — default to excluded but stay pickable, and
 events the user created count as busy no matter which calendar they sit
 on. The linked card shows a per-calendar checklist to override the
 defaults; the choice is stored per participant.
+
+If `TYPESAFE_API_KEY` is set, event classification is semantic: each event
+goes to TypeSafe's Jev model, which labels it **busy** (blocks the slot),
+**flexible** (movable — counts as available), **preferred** (deliberate
+work time — painted into the round-1 "preferred" grid as well), or
+**ignore** (reminders, holidays, other noise). Low-confidence answers and
+unreachable-API blocks fall back to the regex rules, so the import works
+without the key.
 
 To enable it, create OAuth credentials in
 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)

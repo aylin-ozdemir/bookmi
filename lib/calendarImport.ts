@@ -76,7 +76,15 @@ export function defaultCalendarIncluded(e: {
   return e.accessRole === "owner" || e.accessRole === "writer";
 }
 
-export type BlockClass = "busy" | "study" | "ignore";
+/**
+ * busy     — occupies time, blocks the slot
+ * study    — flexible/movable block: counts as available (round 2)
+ * preferred— deliberately-set-aside work time: available AND a first
+ *            choice (also marked in round 1). Only produced by the Jev
+ *            classifier; the regex fallback never returns it.
+ * ignore   — scheduling noise
+ */
+export type BlockClass = "busy" | "study" | "preferred" | "ignore";
 
 export function classify(b: CalBlock): BlockClass {
   // "Transparent" events are explicitly marked as not taking your time.
@@ -89,9 +97,17 @@ export function classify(b: CalBlock): BlockClass {
 export interface CalendarImportResult {
   /** free grid slots → location tag, ready to merge into a round-2 map */
   selections: SelectionMap;
+  /** slots inside "preferred" blocks → location tag, for the round-1 map */
+  preferred: SelectionMap;
   /** grid slots a busy block overlaps (for stats / debugging) */
   busyKeys: string[];
-  stats: { busy: number; study: number; ignored: number; marked: number };
+  stats: {
+    busy: number;
+    study: number;
+    preferred: number;
+    ignored: number;
+    marked: number;
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -107,28 +123,32 @@ interface Interval {
 export function computeImport(
   ev: EventConfig,
   blocks: CalBlock[],
+  classes?: (BlockClass | null)[],
 ): CalendarImportResult {
   const busy: Interval[] = [];
   const study: Interval[] = [];
-  const stats = { busy: 0, study: 0, ignored: 0, marked: 0 };
+  const preferred: Interval[] = [];
+  const stats = { busy: 0, study: 0, preferred: 0, ignored: 0, marked: 0 };
 
-  for (const b of blocks) {
-    const cls = classify(b);
+  blocks.forEach((b, i) => {
+    const cls = classes?.[i] ?? classify(b);
     if (cls === "ignore") {
       stats.ignored++;
-      continue;
+      return;
     }
     stats[cls]++;
-    if (b.durationMin <= 0) continue;
+    if (b.durationMin <= 0) return;
     const start = dayIndex(b.startDay) * 1440 + b.startMin;
-    (cls === "busy" ? busy : study).push({
-      start,
-      end: start + b.durationMin,
-      location: b.location,
-    });
-  }
+    const iv = { start, end: start + b.durationMin, location: b.location };
+    if (cls === "busy") busy.push(iv);
+    else {
+      study.push(iv); // study + preferred both yield availability
+      if (cls === "preferred") preferred.push(iv);
+    }
+  });
 
   const selections: SelectionMap = {};
+  const preferredSel: SelectionMap = {};
   const busyKeys: string[] = [];
   const overlaps = (iv: Interval, s: number, e: number) =>
     iv.start < e && iv.end > s;
@@ -145,9 +165,11 @@ export function computeImport(
       }
       const hit = study.find((iv) => overlaps(iv, s, e));
       selections[key] = (hit && inferCampus(hit.location)) || "EITHER";
+      const pref = preferred.find((iv) => overlaps(iv, s, e));
+      if (pref) preferredSel[key] = inferCampus(pref.location) || "EITHER";
       stats.marked++;
     }
   }
 
-  return { selections, busyKeys, stats };
+  return { selections, preferred: preferredSel, busyKeys, stats };
 }

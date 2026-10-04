@@ -206,4 +206,50 @@ describe("computeImport", () => {
     expect(busyKeys).toHaveLength(6);
     expect(Object.keys(selections)).toHaveLength(0);
   });
+
+  it("paints preferred blocks into both rounds, campus-tagged", () => {
+    const b = block({
+      summary: "Grind for midterm",
+      startMin: 600,
+      durationMin: 120,
+      location: "Shapiro Library", // → CENTRAL
+    });
+    const { selections, preferred, stats } = computeImport(ev, [b], [
+      "preferred",
+    ]);
+    expect(preferred[slotKey("2026-10-05", 600)]).toBe("CENTRAL");
+    expect(preferred[slotKey("2026-10-05", 690)]).toBe("CENTRAL");
+    // preferred ⊆ available — same slots are in round 2 too
+    expect(selections[slotKey("2026-10-05", 600)]).toBe("CENTRAL");
+    expect(preferred[slotKey("2026-10-05", 540)]).toBeUndefined();
+    expect(stats.preferred).toBe(1);
+  });
+
+  it("lets a busy event win over an overlapping preferred block", () => {
+    const { selections, preferred } = computeImport(
+      ev,
+      [
+        block({ summary: "Focus time", startMin: 540, durationMin: 180 }),
+        block({ summary: "Dentist", startMin: 600, durationMin: 60 }),
+      ],
+      ["preferred", "busy"],
+    );
+    expect(preferred[slotKey("2026-10-05", 540)]).toBe("EITHER");
+    expect(preferred[slotKey("2026-10-05", 600)]).toBeUndefined();
+    expect(selections[slotKey("2026-10-05", 600)]).toBeUndefined();
+  });
+
+  it("falls back to the regex rules where classes are null", () => {
+    const { stats } = computeImport(
+      ev,
+      [
+        block({ summary: "Study session", durationMin: 120 }), // regex: study
+        block({ summary: "Lecture", durationMin: 60 }), // regex: busy
+      ],
+      [null, "ignore"], // Jev answered only for the second
+    );
+    expect(stats.study).toBe(1);
+    expect(stats.ignored).toBe(1);
+    expect(stats.busy).toBe(0);
+  });
 });

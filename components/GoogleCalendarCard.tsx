@@ -13,6 +13,7 @@ interface CalEntry {
 
 interface Status {
   configured: boolean;
+  jev?: boolean;
   linked: boolean;
   email: string | null;
   syncedAt: string | null;
@@ -23,8 +24,8 @@ interface Status {
 interface Props {
   slug: string;
   participantId: string;
-  /** Server-rewrite of the round-2 map after a sync or unlink. */
-  onImported(map: SelectionMap): void;
+  /** Server-rewrite of the grids after a sync or unlink. */
+  onImported(round2: SelectionMap, round1?: SelectionMap): void;
 }
 
 /**
@@ -65,12 +66,22 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
         setMsg({ text: data.error ?? "Sync failed — try again.", error: true });
         return;
       }
-      onImportedRef.current(data.selections);
-      const { marked = 0, study = 0, calendars = 1 } = data.stats ?? {};
+      onImportedRef.current(data.selections, data.preferred);
+      const {
+        marked = 0,
+        study = 0,
+        preferred = 0,
+        calendars = 1,
+        classifier,
+      } = data.stats ?? {};
       setMsg({
-        text: `Filled ${marked} "all available" block${marked === 1 ? "" : "s"} across ${
-          calendars === 1 ? "your calendar" : `${calendars} calendars`
-        }${study ? ` — counted ${study} study block${study === 1 ? "" : "s"} as free` : ""}.`,
+        text:
+          `Filled ${marked} "all available" block${marked === 1 ? "" : "s"} across ` +
+          `${calendars === 1 ? "your calendar" : `${calendars} calendars`}` +
+          (study ? ` — counted ${study} flexible block${study === 1 ? "" : "s"} as free` : "") +
+          (preferred ? ` — ${preferred} marked preferred` : "") +
+          "." +
+          (classifier === "jev" ? " Events classified by Jev." : ""),
         error: false,
       });
       load();
@@ -116,9 +127,10 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
       const res = await fetch(api, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        onImportedRef.current(data.selections ?? {});
+        onImportedRef.current(data.selections ?? {}, data.preferred ?? {});
         setStatus({
           configured: status.configured,
+          jev: status.jev,
           linked: false,
           email: null,
           syncedAt: null,
@@ -259,6 +271,11 @@ export default function GoogleCalendarCard({ slug, participantId, onImported }: 
       {msg && (
         <p className={`mt-2 text-xs ${msg.error ? "text-red-600" : "text-emerald-700"}`}>
           {msg.text}
+        </p>
+      )}
+      {status.jev && (
+        <p className="mt-1.5 text-[10px] uppercase tracking-wide text-zinc-400">
+          Event classification powered by Jev
         </p>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { computeImport, defaultCalendarIncluded } from "@/lib/calendarImport";
+import { classifyBlocks, jevConfigured } from "@/lib/jev";
 import { getPrisma } from "@/lib/db";
 import {
   googleConfigured,
@@ -38,6 +39,27 @@ const linked = (p: ParticipantRow) =>
 /** Stored calendar picks, or null = auto mode. */
 function storedCalIds(p: ParticipantRow): string[] | null {
   return p.calendarIds ? (JSON.parse(p.calendarIds) as string[]) : null;
+}
+
+/**
+ * Imported marks per round. Older rows stored a flat round-2 SelectionMap;
+ * newer syncs store { r1, r2 } so preferred imports can be cleaned up too.
+ */
+function importedMaps(p: ParticipantRow): {
+  r1: SelectionMap;
+  r2: SelectionMap;
+} {
+  const raw = JSON.parse(p.calendarImported ?? "{}") as Record<
+    string,
+    unknown
+  >;
+  if ("r1" in raw || "r2" in raw) {
+    return {
+      r1: (raw.r1 ?? {}) as SelectionMap,
+      r2: (raw.r2 ?? {}) as SelectionMap,
+    };
+  }
+  return { r1: {}, r2: raw as SelectionMap };
 }
 
 /** A usable access token, refreshing (and persisting) when near expiry. */
@@ -90,6 +112,7 @@ export async function GET(_request: Request, ctx: Ctx) {
 
   const body: Record<string, unknown> = {
     configured: googleConfigured(),
+    jev: jevConfigured(),
     linked: linked(participant),
     email: participant.googleEmail,
     syncedAt: participant.calendarSyncedAt,
@@ -155,7 +178,16 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   if (!found) return Response.json({ error: "not found" }, { status: 404 });
   const { prisma, participant } = found;
 
-  const prior = JSON.parse(participant.calendarImported ?? "{}") as SelectionMap;
+  const prior = importedMaps(participant);
+
+  const keyWhere = (map: SelectionMap) =>
+    Object.keys(map).map((key) => {
+      const at = key.lastIndexOf("@");
+      return {
+        day: key.slice(0, at),
+        slotStartMin: Number(key.slice(at + 1)),
+      };
+    });
 
   await prisma.$transaction([
     // Imported marks were machine-written; unlinking removes them so the
@@ -163,14 +195,10 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     prisma.selection.deleteMany({
       where: {
         participantId: participant.id,
-        round: 2,
-        OR: Object.keys(prior).map((key) => {
-          const at = key.lastIndexOf("@");
-          return {
-            day: key.slice(0, at),
-            slotStartMin: Number(key.slice(at + 1)),
-          };
-        }),
+        OR: [
+          { round: 2, OR: keyWhere(prior.r2) },
+          { round: 1, OR: keyWhere(prior.r1) },
+        ],
       },
     }),
     prisma.participant.update({
@@ -188,12 +216,15 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   ]);
 
   const remaining = await prisma.selection.findMany({
-    where: { participantId: participant.id, round: 2 },
+    where: { participantId: participant.id },
   });
   const selections: SelectionMap = {};
-  for (const s of remaining)
-    selections[slotKey(s.day, s.slotStartMin)] = s.location as BlockLoc;
-  return Response.json({ linked: false, selections });
+  const preferred: SelectionMap = {};
+  for (const s of remaining) {
+    const map = s.round === 1 ? preferred : selections;
+    map[slotKey(s.day, s.slotStartMin)] = s.location as BlockLoc;
+  }
+  return Response.json({ linked: false, selections, preferred });
 }
 
 /**
@@ -228,8 +259,9 @@ export async function POST(_request: Request, ctx: Ctx) {
 
   const emptyImport = {
     selections: {} as SelectionMap,
+    preferred: {} as SelectionMap,
     busyKeys: [] as string[],
-    stats: { busy: 0, study: 0, ignored: 0, marked: 0 },
+    stats: { busy: 0, study: 0, preferred: 0, ignored: 0, marked: 0 },
   };
 
   const token = await accessToken(prisma, participant);
@@ -285,7 +317,10 @@ export async function POST(_request: Request, ctx: Ctx) {
         (n, r) => n + (r.status === "fulfilled" ? r.value.length : 0),
         0,
       );
-      result = computeImport(config, blocks);
+      // Jev classifies each block (busy / preferred / flexible / ignore);
+      // entries it leaves null fall back to the regex rules in computeImport.
+      const classes = jevConfigured() ? await classifyBlocks(blocks) : undefined;
+      result = computeImport(config, blocks, classes ?? undefined);
     }
   } catch (e) {
     return Response.json(
@@ -294,30 +329,37 @@ export async function POST(_request: Request, ctx: Ctx) {
     );
   }
 
-  const prior = JSON.parse(participant.calendarImported ?? "{}") as SelectionMap;
+  const prior = importedMaps(participant);
   const existing = await prisma.selection.findMany({
-    where: { participantId: participant.id, round: 2 },
+    where: { participantId: participant.id },
   });
-  const manual: SelectionMap = {};
+  // Hand-painted marks (anything not written by the last import) win over
+  // imported ones on the same slot, per round.
+  const manual: [SelectionMap, SelectionMap] = [{}, {}];
   for (const s of existing) {
     const key = slotKey(s.day, s.slotStartMin);
-    if (!(key in prior)) manual[key] = s.location as BlockLoc;
+    const prev = s.round === 1 ? prior.r1 : prior.r2;
+    if (!(key in prev)) manual[s.round - 1][key] = s.location as BlockLoc;
   }
-  // Hand-painted marks win over imported ones on the same slot.
-  const merged: SelectionMap = { ...result.selections, ...manual };
+  const mergedR2: SelectionMap = { ...result.selections, ...manual[1] };
+  const mergedR1: SelectionMap = { ...result.preferred, ...manual[0] };
+  const rows = [
+    ...Object.entries(mergedR2).map(([key, location]) => ({ key, location, round: 2 })),
+    ...Object.entries(mergedR1).map(([key, location]) => ({ key, location, round: 1 })),
+  ];
 
   await prisma.$transaction([
     prisma.selection.deleteMany({
-      where: { participantId: participant.id, round: 2 },
+      where: { participantId: participant.id },
     }),
     prisma.selection.createMany({
-      data: Object.entries(merged).map(([key, location]) => {
+      data: rows.map(({ key, location, round }) => {
         const at = key.lastIndexOf("@");
         return {
           participantId: participant.id,
           day: key.slice(0, at),
           slotStartMin: Number(key.slice(at + 1)),
-          round: 2,
+          round,
           location,
         };
       }),
@@ -325,14 +367,23 @@ export async function POST(_request: Request, ctx: Ctx) {
     prisma.participant.update({
       where: { id: participant.id },
       data: {
-        calendarImported: JSON.stringify(result.selections),
+        calendarImported: JSON.stringify({
+          r1: result.preferred,
+          r2: result.selections,
+        }),
         calendarSyncedAt: new Date(),
       },
     }),
   ]);
 
   return Response.json({
-    selections: merged,
-    stats: { ...result.stats, calendars, events: eventCount },
+    selections: mergedR2,
+    preferred: mergedR1,
+    stats: {
+      ...result.stats,
+      calendars,
+      events: eventCount,
+      classifier: jevConfigured() ? "jev" : "rules",
+    },
   });
 }
