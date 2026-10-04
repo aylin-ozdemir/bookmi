@@ -69,20 +69,6 @@ export default function ResultsPanel({ event, results, names }: Props) {
         >
           {TIER_COPY[results.tier]}
         </div>
-        {results.recommendedRuns.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {results.recommendedRuns.map((r) => (
-              <li key={`${r.day}@${r.startMin}`} className="text-sm font-medium text-zinc-800">
-                {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
-                {r.suggestedLocation && (
-                  <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-800">
-                    {r.suggestedLocation === "NORTH" ? "North Campus" : "Central Campus"}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       <div className="mb-2 flex gap-1.5">
@@ -199,6 +185,26 @@ export default function ResultsPanel({ event, results, names }: Props) {
         everyone — a meeting candidate. Lighter green = some can make it.
         Blue outline = recommended. Hover a cell to see who and why.
       </p>
+      {results.recommendedRuns.length > 0 && (
+        <div className="mt-3 rounded-md border border-green-300 bg-green-50 px-3 py-2">
+          <p className="text-xs font-semibold text-green-900">
+            ✓ Best time{results.recommendedRuns.length > 1 ? "s" : ""} — works
+            for everyone:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {results.recommendedRuns.map((r) => (
+              <li key={`${r.day}@${r.startMin}`} className="text-sm font-medium text-zinc-800">
+                {fmtDay(r.day)} · {fmtMin(r.startMin)}–{fmtMin(r.endMin)}
+                {r.suggestedLocation && (
+                  <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-800">
+                    {r.suggestedLocation === "NORTH" ? "North Campus" : "Central Campus"}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {remoteRuns.length > 0 && (
         <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2">
           <p className="text-xs font-semibold text-violet-900">
